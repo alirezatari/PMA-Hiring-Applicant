@@ -46,6 +46,14 @@ export async function apiFetch<T>(
     }
   }
 
+  const token =
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem("pma_auth_token")
+      : null;
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers,

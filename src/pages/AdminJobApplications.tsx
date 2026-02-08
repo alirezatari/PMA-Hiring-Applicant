@@ -1,0 +1,803 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { apiFetch } from "../api";
+
+type JobApplication = {
+  jobApplicationId?: number;
+  applicantId?: number;
+  jobGroupId?: number;
+  applicationStatusId?: number | null;
+  applicationStatusName?: string | null;
+  appliedDate?: string | null;
+  createdDate?: string | null;
+  applicantName?: string | null;
+  applicantMobile?: string | null;
+  applicantNationalCode?: string | null;
+  jobGroupTitle?: string | null;
+};
+
+type ApplicantDetail = {
+  applicantId?: number;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  nationalCode?: string | null;
+  mobile?: string | null;
+  description?: string | null;
+  imagePath?: string | null;
+  imageUrl?: string | null;
+  imageBase64?: string | null;
+  imageContentType?: string | null;
+  resumePath?: string | null;
+  provinceName?: string | null;
+  cityName?: string | null;
+  gender?: number | null;
+  birthDate?: string | null;
+  maritalStatus?: number | null;
+  militaryStatus?: number | null;
+  educationField?: string | null;
+  lastJobTitle?: string | null;
+  workExperienceYears?: number | null;
+  linkedInLink?: string | null;
+  socialLink?: string | null;
+  applicantStatusName?: string | null;
+  createdDate?: string | null;
+  updatedDate?: string | null;
+};
+
+function formatFaDateTime(value?: string | null): string {
+  if (!value) return "—";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return "—";
+  const time = dt.toLocaleTimeString("fa-IR-u-ca-persian", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const date = dt.toLocaleDateString("fa-IR-u-ca-persian", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return `${time} - ${date}`;
+}
+
+function formatFaDate(value?: string | null): string {
+  if (!value) return "—";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleDateString("fa-IR-u-ca-persian", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function buildFileUrl(path?: string | null): string | null {
+  if (!path) return null;
+  const raw = String(path).replace(/\\/g, "/");
+  if (/^data:image\//i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const devBase =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/pmahiringservice`
+      : "";
+  const base =
+    import.meta.env.VITE_FILE_BASE_URL ||
+    (import.meta.env.DEV ? devBase : import.meta.env.VITE_API_BASE_URL) ||
+    "";
+  if (!base) return `/${raw.replace(/^\/+/, "")}`;
+  return `${base.replace(/\/+$/, "")}/${raw.replace(/^\/+/, "")}`;
+}
+
+function buildImageSrc(detail?: ApplicantDetail | null): string | null {
+  if (!detail) return null;
+  if (detail.imageBase64) {
+    const ct = detail.imageContentType || "image/jpeg";
+    return `data:${ct};base64,${detail.imageBase64}`;
+  }
+  return buildFileUrl(detail.imageUrl ?? detail.imagePath);
+}
+
+function normalizeList(data: any): any[] {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.jobApplications)) return data.jobApplications;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.result)) return data.result;
+  return [];
+}
+
+function normalizeApplication(raw: any): JobApplication {
+  const d = raw ?? {};
+  return {
+    jobApplicationId: d.jobApplicationId ?? d.JobApplicationId ?? d.id,
+    applicantId: d.applicantId ?? d.ApplicantId,
+    jobGroupId: d.jobGroupId ?? d.JobGroupId,
+    applicationStatusId: d.applicationStatusId ?? d.ApplicationStatusId ?? null,
+    applicationStatusName:
+      d.applicationStatusName ?? d.ApplicationStatusName ?? null,
+    appliedDate: d.appliedDate ?? d.AppliedDate ?? null,
+    createdDate: d.createdDate ?? d.CreatedDate ?? null,
+    applicantName: d.applicantName ?? d.ApplicantName ?? null,
+    applicantMobile: d.applicantMobile ?? d.ApplicantMobile ?? null,
+    applicantNationalCode:
+      d.applicantNationalCode ?? d.ApplicantNationalCode ?? null,
+    jobGroupTitle: d.jobGroupTitle ?? d.JobGroupTitle ?? null,
+  };
+}
+
+export default function AdminJobApplications() {
+  const { jobGroupId } = useParams<{ jobGroupId: string }>();
+  const navigate = useNavigate();
+
+  const jobGroupNum = Number(jobGroupId || 0);
+  const [items, setItems] = useState<JobApplication[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [search, setSearch] = useState("");
+  const [statusOptions, setStatusOptions] = useState<
+    { id: number; title: string }[]
+  >([]);
+  const [jobGroupTitle, setJobGroupTitle] = useState<string>("");
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selected, setSelected] = useState<JobApplication | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [detail, setDetail] = useState<ApplicantDetail | null>(null);
+  const [imageOpen, setImageOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<
+    "applicantName" | "createdDate" | "applicationStatusId" | "applicantMobile"
+  >("createdDate");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [pageSize, setPageSize] = useState(20);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setError("");
+        if (!jobGroupNum) {
+          setItems([]);
+          return;
+        }
+        const { data, res } = await apiFetch<any>(`/api/JobApplications`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            applicantId: 0,
+            jobGroupId: jobGroupNum,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        let list = normalizeList(data).map((x) => normalizeApplication(x));
+        // Defensive filter in case backend ignores jobGroupId
+        list = list.filter(
+          (x) => Number(x.jobGroupId ?? 0) === Number(jobGroupNum),
+        );
+        if (!mounted) return;
+        const title =
+          list.find((x) => x.jobGroupTitle)?.jobGroupTitle ?? "";
+        setJobGroupTitle(title);
+        setItems(list);
+      } catch (e: any) {
+        if (!mounted) return;
+        setError(e?.message ?? "خطا در دریافت لیست درخواست‌ها");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [jobGroupNum]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data, res } = await apiFetch<any>(`/api/ApplicantStatuses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ searchKey: "" }),
+        });
+        if (!res.ok) return;
+        const list: any[] = Array.isArray(data?.applicantStatuses)
+          ? data.applicantStatuses
+          : Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.result)
+          ? data.result
+          : Array.isArray(data)
+          ? data
+          : [];
+        const mapped = list
+          .map((x) => ({
+            id: Number(x?.applicantStatusId ?? x?.id),
+            title: String(x?.title ?? x?.name ?? x?.statusName ?? ""),
+          }))
+          .filter((x) => Number.isFinite(x.id) && x.id > 0);
+        if (!mounted) return;
+        setStatusOptions(mapped);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    let list = items;
+    if (statusFilter) {
+      list = list.filter(
+        (x) => String(x.applicationStatusId ?? "") === statusFilter,
+      );
+    }
+    if (search.trim()) {
+      const s = search.trim();
+      list = list.filter(
+        (x) =>
+          String(x.applicantName ?? "").includes(s) ||
+          String(x.applicantMobile ?? "").includes(s) ||
+          String(x.applicantNationalCode ?? "").includes(s),
+      );
+    }
+    return list;
+  }, [items, statusFilter, search]);
+
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    list.sort((a, b) => {
+      let av: string | number = "";
+      let bv: string | number = "";
+      if (sortKey === "createdDate") {
+        av = Date.parse(String(a.createdDate ?? a.appliedDate ?? "")) || 0;
+        bv = Date.parse(String(b.createdDate ?? b.appliedDate ?? "")) || 0;
+      } else if (sortKey === "applicantName") {
+        av = String(a.applicantName ?? "");
+        bv = String(b.applicantName ?? "");
+      } else if (sortKey === "applicationStatusId") {
+        av = Number(a.applicationStatusId ?? 0);
+        bv = Number(b.applicationStatusId ?? 0);
+      } else if (sortKey === "applicantMobile") {
+        av = String(a.applicantMobile ?? "");
+        bv = String(b.applicantMobile ?? "");
+      }
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [filtered, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const pageItems = sorted.slice(start, start + pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, search, pageSize, sortKey, sortDir]);
+
+  function toggleSort(nextKey: typeof sortKey) {
+    if (sortKey === nextKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(nextKey);
+      setSortDir("asc");
+    }
+  }
+
+  function SortIcon({ active }: { active: boolean }) {
+    return (
+      <span className="inline-block text-xs text-gray-400">
+        {active ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
+      </span>
+    );
+  }
+
+  async function openDetails(row: JobApplication) {
+    setSelected(row);
+    setDetail(null);
+    setDetailError("");
+    setDetailOpen(true);
+    if (!row.applicantId) return;
+    setDetailLoading(true);
+    try {
+      const { data, res } = await apiFetch<any>(
+        `/api/Applicants/${row.applicantId}`,
+        { method: "GET" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = data ?? {};
+      const mapped: ApplicantDetail = {
+        applicantId: d.applicantId ?? d.ApplicantId,
+        firstName: d.firstName ?? d.FirstName ?? null,
+        lastName: d.lastName ?? d.LastName ?? null,
+        email: d.email ?? d.Email ?? null,
+        nationalCode: d.nationalCode ?? d.NationalCode ?? null,
+        mobile: d.mobile ?? d.Mobile ?? null,
+        description: d.description ?? d.Description ?? null,
+        imagePath: d.imagePath ?? d.ImagePath ?? null,
+        imageUrl:
+          d.imageUrl ?? d.ImageUrl ?? d.imageLink ?? d.ImageLink ?? null,
+        imageBase64: d.imageBase64 ?? d.ImageBase64 ?? null,
+        imageContentType: d.imageContentType ?? d.ImageContentType ?? null,
+        resumePath: d.resumePath ?? d.ResumePath ?? null,
+        provinceName: d.provinceName ?? d.ProvinceName ?? null,
+        cityName: d.cityName ?? d.CityName ?? null,
+        gender: d.gender ?? d.Gender ?? null,
+        birthDate: d.birthDate ?? d.BirthDate ?? null,
+        maritalStatus: d.maritalStatus ?? d.MaritalStatus ?? null,
+        militaryStatus: d.militaryStatus ?? d.MilitaryStatus ?? null,
+        educationField: d.educationField ?? d.EducationField ?? null,
+        lastJobTitle: d.lastJobTitle ?? d.LastJobTitle ?? null,
+        workExperienceYears:
+          d.workExperienceYears ?? d.WorkExperienceYears ?? null,
+        linkedInLink: d.linkedInLink ?? d.LinkedInLink ?? null,
+        socialLink: d.socialLink ?? d.SocialLink ?? null,
+        applicantStatusName:
+          d.applicantStatusName ?? d.ApplicantStatusName ?? null,
+        createdDate: d.createdDate ?? d.CreatedDate ?? null,
+        updatedDate: d.updatedDate ?? d.UpdatedDate ?? null,
+      };
+      setDetail(mapped);
+    } catch (e: any) {
+      setDetailError(e?.message ?? "خطا در دریافت جزئیات متقاضی");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  const statusMap = useMemo(() => {
+    const map = new Map<number, string>();
+    statusOptions.forEach((s) => {
+      if (Number.isFinite(s.id)) map.set(s.id, s.title);
+    });
+    return map;
+  }, [statusOptions]);
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-extrabold text-gray-900">
+            درخواست‌های ثبت‌شده
+          </h1>
+          <p className="mt-1 text-sm text-gray-600">
+            گروه شغلی: {jobGroupTitle || "—"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate("/admin/applications")}
+          className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+        >
+          تغییر گروه شغلی
+        </button>
+      </div>
+
+      <div className="mt-6 rounded-2xl border bg-white p-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm"
+            placeholder="جستجو: نام، موبایل، کد ملی"
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm"
+          >
+            <option value="">همه وضعیت‌ها</option>
+            {statusOptions.map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.title || `وضعیت ${s.id}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-6">
+        {loading && (
+          <div className="text-sm text-gray-600">در حال بارگذاری...</div>
+        )}
+        {!loading && error && (
+          <div className="text-sm text-red-600">{error}</div>
+        )}
+        {!loading && !error && filtered.length === 0 && (
+          <div className="text-sm text-gray-600">موردی یافت نشد.</div>
+        )}
+
+        {!loading && !error && pageItems.length > 0 && (
+          <div className="rounded-2xl border bg-white overflow-hidden flex flex-col max-h-[calc(100vh-260px)]">
+            <div className="overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("applicantName")}
+                      className="inline-flex items-center gap-2"
+                    >
+                      نام متقاضی <SortIcon active={sortKey === "applicantName"} />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("applicantMobile")}
+                      className="inline-flex items-center gap-2"
+                    >
+                      موبایل <SortIcon active={sortKey === "applicantMobile"} />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right">کد ملی</th>
+                  <th className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("applicationStatusId")}
+                      className="inline-flex items-center gap-2"
+                    >
+                      وضعیت <SortIcon active={sortKey === "applicationStatusId"} />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("createdDate")}
+                      className="inline-flex items-center gap-2"
+                    >
+                      تاریخ ثبت <SortIcon active={sortKey === "createdDate"} />
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((x, idx) => (
+                  <tr
+                    key={idx}
+                    className="border-t hover:bg-gray-50 cursor-pointer"
+                    onClick={() => openDetails(x)}
+                  >
+                    <td className="px-4 py-3">
+                      {x.applicantName ??
+                        (x.applicantId ? `متقاضی #${x.applicantId}` : "—")}
+                    </td>
+                    <td className="px-4 py-3">{x.applicantMobile ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      {x.applicantNationalCode ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {x.applicationStatusId != null
+                        ? statusMap.get(Number(x.applicationStatusId)) ??
+                          x.applicationStatusName ??
+                          x.applicationStatusId
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {formatFaDateTime(x.createdDate ?? x.appliedDate)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+            <div className="border-t bg-white px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs text-gray-500">
+                نمایش {start + 1}-{Math.min(start + pageSize, sorted.length)} از{" "}
+                {sorted.length}
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="rounded-lg border px-2 py-1 text-xs"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setPage(1)}
+                  disabled={currentPage === 1}
+                  className="rounded-lg border px-2 py-1 text-xs disabled:opacity-60"
+                >
+                  اول
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="rounded-lg border px-2 py-1 text-xs disabled:opacity-60"
+                >
+                  قبلی
+                </button>
+                <span className="text-xs text-gray-600">
+                  صفحه {currentPage} از {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="rounded-lg border px-2 py-1 text-xs disabled:opacity-60"
+                >
+                  بعدی
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="rounded-lg border px-2 py-1 text-xs disabled:opacity-60"
+                >
+                  آخر
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {detailOpen && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setDetailOpen(false)}
+          />
+          <div className="relative w-full max-w-5xl rounded-2xl border bg-white shadow-lg max-h-[94vh] flex flex-col">
+            <div className="p-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm text-gray-500">
+                  جزئیات درخواست{" "}
+                  <span className="text-gray-700">
+                    ({selected.jobGroupTitle ?? jobGroupTitle ?? "—"})
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailOpen(false)}
+                className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+              >
+                <span>بستن</span>
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5">
+                    <path
+                      fill="currentColor"
+                      d="M7.05 6.34a1 1 0 011.41 0L12 9.88l3.54-3.54a1 1 0 111.41 1.41L13.41 11.3l3.54 3.54a1 1 0 01-1.41 1.41L12 12.71l-3.54 3.54a1 1 0 01-1.41-1.41l3.54-3.54-3.54-3.54a1 1 0 010-1.41z"
+                    />
+                  </svg>
+                </span>
+              </button>
+            </div>
+
+            <div className="px-4 mt-1 grid grid-cols-1 md:grid-cols-[120px_1fr] gap-2 text-sm items-start">
+              <div className="flex flex-col items-end">
+                {buildImageSrc(detail) ? (
+                  <button
+                    type="button"
+                    onClick={() => setImageOpen(true)}
+                    className="rounded-xl border bg-gray-50 p-2 h-36 w-28 flex items-center justify-center hover:ring-2 hover:ring-rose-200"
+                    aria-label="نمایش بزرگ تصویر"
+                  >
+                    <img
+                      src={buildImageSrc(detail) ?? ""}
+                      alt="عکس متقاضی"
+                      className="h-32 w-24 object-cover rounded-md border bg-white"
+                    />
+                  </button>
+                ) : (
+                  <div className="h-36 w-28 rounded-xl border bg-gray-50" />
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 md:grid-rows-2 gap-2 md:h-36 items-stretch">
+                <div className="rounded-xl border bg-gray-50 p-2 h-full">
+                  <div className="text-xs text-gray-500">نام و نام‌خانوادگی</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {`${detail?.firstName ?? ""} ${detail?.lastName ?? ""}`.trim() ||
+                      "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-gray-50 p-2 h-full">
+                  <div className="text-xs text-gray-500">کد ملی</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail?.nationalCode ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-gray-50 p-2 h-full">
+                  <div className="text-xs text-gray-500">موبایل</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail?.mobile ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-gray-50 p-2 h-full">
+                  <div className="text-xs text-gray-500">ایمیل</div>
+                  <div className="mt-1 font-semibold text-gray-900 break-all">
+                    {detail?.email ?? "—"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-4 mt-2">
+              {detailLoading && (
+                <div className="text-sm text-gray-600">در حال بارگذاری...</div>
+              )}
+              {!!detailError && (
+                <div className="text-sm text-red-600">{detailError}</div>
+              )}
+            </div>
+
+            {detail && !detailLoading && !detailError && (
+              <div className="px-4 pb-4 mt-2 overflow-auto grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">استان / شهر</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.provinceName ?? "—"} / {detail.cityName ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">جنسیت</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.gender === 1
+                      ? "مرد"
+                      : detail.gender === 2
+                      ? "زن"
+                      : "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">تاریخ تولد</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {formatFaDate(detail.birthDate)}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">وضعیت تأهل</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.maritalStatus === 0
+                      ? "مجرد"
+                      : detail.maritalStatus === 1
+                      ? "متأهل"
+                      : "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">وضعیت سربازی</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.militaryStatus === 0
+                      ? "معاف"
+                      : detail.militaryStatus === 1
+                      ? "در حال خدمت"
+                      : detail.militaryStatus === 2
+                      ? "انجام شده"
+                      : "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">رشته تحصیلی</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.educationField ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">آخرین سمت شغلی</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.lastJobTitle ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">سابقه کار (سال)</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.workExperienceYears ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">لینکدین</div>
+                  <div className="mt-1 font-semibold text-gray-900 break-all">
+                    {detail.linkedInLink ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">سوشال</div>
+                  <div className="mt-1 font-semibold text-gray-900 break-all">
+                    {detail.socialLink ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2 md:col-span-2">
+                  <div className="text-xs text-gray-500">معرفی</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.description ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">وضعیت درخواست</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.applicantStatusName ?? "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">تاریخ ثبت</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {formatFaDateTime(detail.createdDate)}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">تاریخ بروزرسانی</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {formatFaDateTime(detail.updatedDate)}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">رزومه</div>
+                  <div className="mt-1 font-semibold text-gray-900 break-all">
+                    {detail.resumePath && buildFileUrl(detail.resumePath) ? (
+                      <a
+                        href={buildFileUrl(detail.resumePath) ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        دانلود رزومه
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {imageOpen && detail && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setImageOpen(false)}
+          />
+          <div className="relative w-full max-w-3xl rounded-2xl border bg-white shadow-xl p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="text-sm text-gray-600">نمایش بزرگ تصویر</div>
+              <button
+                type="button"
+                onClick={() => setImageOpen(false)}
+                className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+              >
+                <span>بستن</span>
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5">
+                    <path
+                      fill="currentColor"
+                      d="M7.05 6.34a1 1 0 011.41 0L12 9.88l3.54-3.54a1 1 0 111.41 1.41L13.41 11.3l3.54 3.54a1 1 0 01-1.41 1.41L12 12.71l-3.54 3.54a1 1 0 01-1.41-1.41l3.54-3.54-3.54-3.54a1 1 0 010-1.41z"
+                    />
+                  </svg>
+                </span>
+              </button>
+            </div>
+            {buildImageSrc(detail) ? (
+              <div className="flex items-center justify-center">
+                <img
+                  src={buildImageSrc(detail) ?? ""}
+                  alt="عکس متقاضی"
+                  className="max-h-[75vh] w-auto rounded-xl border bg-white object-contain"
+                />
+              </div>
+            ) : (
+              <div className="text-sm text-gray-500">تصویر موجود نیست.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
