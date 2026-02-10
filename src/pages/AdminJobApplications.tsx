@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { apiFetch } from "../api";
+import { API_BASE, apiFetch } from "../api";
 
 type JobApplication = {
   jobApplicationId?: number;
@@ -146,6 +146,8 @@ export default function AdminJobApplications() {
   const [detailError, setDetailError] = useState("");
   const [detail, setDetail] = useState<ApplicantDetail | null>(null);
   const [imageOpen, setImageOpen] = useState(false);
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const [resumeError, setResumeError] = useState("");
   const [sortKey, setSortKey] = useState<
     "applicantName" | "createdDate" | "applicationStatusId" | "applicantMobile"
   >("createdDate");
@@ -304,6 +306,7 @@ export default function AdminJobApplications() {
     setSelected(row);
     setDetail(null);
     setDetailError("");
+    setResumeError("");
     setDetailOpen(true);
     if (!row.applicantId) return;
     setDetailLoading(true);
@@ -350,6 +353,141 @@ export default function AdminJobApplications() {
       setDetailError(e?.message ?? "خطا در دریافت جزئیات متقاضی");
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  function getFilenameFromDisposition(value: string | null): string | null {
+    if (!value) return null;
+    const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(value);
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1]);
+      } catch {
+        return utf8Match[1];
+      }
+    }
+    const match = /filename="?([^\";]+)"?/i.exec(value);
+    return match?.[1] ?? null;
+  }
+
+  function normalizeDownloadLink(data: any): string | null {
+    if (!data) return null;
+    if (typeof data === "string") {
+      const v = data.trim();
+      if (
+        /^https?:\/\//i.test(v) ||
+        v.startsWith("/") ||
+        /\/api\/files\//i.test(v) ||
+        /download\?token=/i.test(v)
+      ) {
+        return v;
+      }
+      return null;
+    }
+    return (
+      data?.url ??
+      data?.link ??
+      data?.downloadUrl ??
+      data?.downloadLink ??
+      null
+    );
+  }
+
+  function normalizeDownloadToken(data: any): string | null {
+    if (!data) return null;
+    if (typeof data === "string") {
+      const v = data.trim();
+      if (!v) return null;
+      return v;
+    }
+    return data?.token ?? data?.fileToken ?? data?.downloadToken ?? null;
+  }
+
+  async function downloadResume(applicantId: number) {
+    setResumeBusy(true);
+    setResumeError("");
+    try {
+      const { data, res } = await apiFetch<any>(
+        `/api/Files/applicant/${applicantId}/link?minutes=10`,
+        { method: "GET" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const direct = normalizeDownloadLink(data);
+      const token = normalizeDownloadToken(data);
+
+      const base = (API_BASE || "").replace(/\/+$/, "");
+      if (!direct && !token) {
+        throw new Error("توکن یا لینک دانلود دریافت نشد");
+      }
+      const fallbackUrl = `/api/Files/download?token=${encodeURIComponent(
+        String(token ?? ""),
+      )}`;
+      const url =
+        direct && /^https?:\/\//i.test(direct)
+          ? direct
+          : direct
+          ? `${base}${direct.startsWith("/") ? direct : `/${direct}`}`
+          : token
+          ? `${base}${fallbackUrl}`
+          : `${base}${fallbackUrl}`;
+
+      const tryDownloadBlob = async (useAuth: boolean) => {
+        const headers = new Headers();
+        if (useAuth) {
+          const authToken =
+            typeof localStorage !== "undefined"
+              ? localStorage.getItem("pma_auth_token")
+              : null;
+          if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
+        }
+
+        const downloadRes = await fetch(url, {
+          method: "GET",
+          headers: headers.size ? headers : undefined,
+        });
+        if (!downloadRes.ok) throw new Error(`HTTP ${downloadRes.status}`);
+
+        const blob = await downloadRes.blob();
+        const filename =
+          getFilenameFromDisposition(
+            downloadRes.headers.get("content-disposition"),
+          ) || `resume_${applicantId}`;
+
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(blobUrl);
+      };
+
+      try {
+        // اول بدون هدر Authorization (برای جلوگیری از CORS preflight)
+        await tryDownloadBlob(false);
+        return;
+      } catch {
+        // اگر نشد، با Authorization امتحان کن
+        try {
+          await tryDownloadBlob(true);
+          return;
+        } catch {
+          // fallback: اجازه بده مرورگر مستقیم دانلود کند (بدون fetch)
+          const a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noreferrer";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }
+      }
+    } catch (e: any) {
+      setResumeError(e?.message ?? "خطا در دریافت رزومه");
+    } finally {
+      setResumeBusy(false);
     }
   }
 
@@ -562,21 +700,39 @@ export default function AdminJobApplications() {
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setDetailOpen(false)}
-                className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
-              >
-                <span>بستن</span>
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-rose-100 text-rose-600">
-                  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5">
-                    <path
-                      fill="currentColor"
-                      d="M7.05 6.34a1 1 0 011.41 0L12 9.88l3.54-3.54a1 1 0 111.41 1.41L13.41 11.3l3.54 3.54a1 1 0 01-1.41 1.41L12 12.71l-3.54 3.54a1 1 0 01-1.41-1.41l3.54-3.54-3.54-3.54a1 1 0 010-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (detail?.applicantId) {
+                      downloadResume(Number(detail.applicantId));
+                    }
+                  }}
+                  disabled={!detail?.applicantId || resumeBusy}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {resumeBusy ? "در حال دریافت..." : "دریافت رزومه"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailOpen(false)}
+                  className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+                >
+                  <span>بستن</span>
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-3.5 w-3.5"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M7.05 6.34a1 1 0 011.41 0L12 9.88l3.54-3.54a1 1 0 111.41 1.41L13.41 11.3l3.54 3.54a1 1 0 01-1.41 1.41L12 12.71l-3.54 3.54a1 1 0 01-1.41-1.41l3.54-3.54-3.54-3.54a1 1 0 010-1.41z"
+                      />
+                    </svg>
+                  </span>
+                </button>
+              </div>
             </div>
 
             <div className="px-4 mt-1 grid grid-cols-1 md:grid-cols-[120px_1fr] gap-2 text-sm items-start">
@@ -728,29 +884,6 @@ export default function AdminJobApplications() {
                   <div className="text-xs text-gray-500">تاریخ ثبت</div>
                   <div className="mt-1 font-semibold text-gray-900">
                     {formatFaDateTime(detail.createdDate)}
-                  </div>
-                </div>
-                <div className="rounded-xl border bg-white p-2">
-                  <div className="text-xs text-gray-500">تاریخ بروزرسانی</div>
-                  <div className="mt-1 font-semibold text-gray-900">
-                    {formatFaDateTime(detail.updatedDate)}
-                  </div>
-                </div>
-                <div className="rounded-xl border bg-white p-2">
-                  <div className="text-xs text-gray-500">رزومه</div>
-                  <div className="mt-1 font-semibold text-gray-900 break-all">
-                    {detail.resumePath && buildFileUrl(detail.resumePath) ? (
-                      <a
-                        href={buildFileUrl(detail.resumePath) ?? "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-blue-600 hover:underline"
-                      >
-                        دانلود رزومه
-                      </a>
-                    ) : (
-                      "—"
-                    )}
                   </div>
                 </div>
               </div>

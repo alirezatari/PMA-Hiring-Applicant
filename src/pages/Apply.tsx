@@ -200,7 +200,7 @@ export default function Apply() {
       try {
         setProvincesLoadError("");
 
-        const g = await apiFetch<any>(`${API_BASE}/api/Provinces`, {
+        const g = await apiFetch<any>(`/api/Provinces`, {
           signal: controller.signal,
         });
         if (g?.res?.ok) {
@@ -211,7 +211,7 @@ export default function Apply() {
           }
         }
 
-        const p = await apiFetch<any>(`${API_BASE}/api/Provinces`, {
+        const p = await apiFetch<any>(`/api/Provinces`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ searchKey: "" }),
@@ -238,7 +238,7 @@ export default function Apply() {
       try {
         setCitiesLoadError("");
 
-        const g = await apiFetch<any>(`${API_BASE}/api/Cities`, {
+        const g = await apiFetch<any>(`/api/Cities`, {
           signal: controller.signal,
         });
         if (g?.res?.ok) {
@@ -249,7 +249,7 @@ export default function Apply() {
           }
         }
 
-        const p = await apiFetch<any>(`${API_BASE}/api/Cities`, {
+        const p = await apiFetch<any>(`/api/Cities`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ searchKey: "" }),
@@ -280,7 +280,7 @@ export default function Apply() {
     searchKey: string
   ): Promise<number | null> {
     if (!searchKey) return null;
-    const { data, res } = await apiFetch<any>(`${API_BASE}/api/Applicants`, {
+    const { data, res } = await apiFetch<any>(`/api/Applicants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ searchKey }),
@@ -418,7 +418,7 @@ export default function Apply() {
       }
 
       const { data: applicantResp, res: applicantRes } = await apiFetch<any>(
-        `${API_BASE}/api/Applicants/create`,
+        `/api/Applicants/create`,
         {
           method: "POST",
           body: form,
@@ -493,13 +493,10 @@ export default function Apply() {
         formData.append("workExperienceYears", workExperienceYears);
       if (description) formData.append("description", description);
 
-      const response = await apiFetch<any>(
-        `${API_BASE}/api/Applicants/create`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      const response = await apiFetch<any>(`/api/Applicants/create`, {
+        method: "POST",
+        body: formData,
+      });
 
       if (response?.res?.ok) {
         setSuccess(true);
