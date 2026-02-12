@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { API_BASE, apiFetch } from "../api";
+import { useAuth } from "../auth";
 
 type JobApplication = {
   jobApplicationId?: number;
@@ -43,6 +44,15 @@ type ApplicantDetail = {
   applicantStatusName?: string | null;
   createdDate?: string | null;
   updatedDate?: string | null;
+};
+
+type ApplicantStatusHistoryItem = {
+  id: number;
+  applicantStatusId: number | null;
+  applicantStatusName: string;
+  comment: string;
+  changedByUserName: string;
+  changedDate: string | null;
 };
 
 function formatFaDateTime(value?: string | null): string {
@@ -126,15 +136,25 @@ function normalizeApplication(raw: any): JobApplication {
 }
 
 export default function AdminJobApplications() {
+  const { state } = useAuth();
   const { jobGroupId } = useParams<{ jobGroupId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const queryStatusId = searchParams.get("statusId");
+  const queryStatusName = searchParams.get("statusName");
+  const initialStatusFilter =
+    queryStatusId && Number(queryStatusId) > 0 ? queryStatusId : "";
+  const initialStatusNameFilter = queryStatusName?.trim() || "";
 
   const jobGroupNum = Number(jobGroupId || 0);
   const [items, setItems] = useState<JobApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter);
+  const [statusNameFilter, setStatusNameFilter] = useState<string>(
+    initialStatusNameFilter,
+  );
   const [search, setSearch] = useState("");
   const [statusOptions, setStatusOptions] = useState<
     { id: number; title: string }[]
@@ -148,6 +168,17 @@ export default function AdminJobApplications() {
   const [imageOpen, setImageOpen] = useState(false);
   const [resumeBusy, setResumeBusy] = useState(false);
   const [resumeError, setResumeError] = useState("");
+  const [statusEditOpen, setStatusEditOpen] = useState(false);
+  const [nextStatusId, setNextStatusId] = useState<string>("");
+  const [statusComment, setStatusComment] = useState("");
+  const [statusEditBusy, setStatusEditBusy] = useState(false);
+  const [statusEditError, setStatusEditError] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historyItems, setHistoryItems] = useState<ApplicantStatusHistoryItem[]>(
+    [],
+  );
   const [sortKey, setSortKey] = useState<
     "applicantName" | "createdDate" | "applicationStatusId" | "applicantMobile"
   >("createdDate");
@@ -232,11 +263,25 @@ export default function AdminJobApplications() {
     };
   }, []);
 
+  useEffect(() => {
+    const nextStatusFilter =
+      queryStatusId && Number(queryStatusId) > 0 ? queryStatusId : "";
+    const nextStatusNameFilter = queryStatusName?.trim() || "";
+    setStatusFilter(nextStatusFilter);
+    setStatusNameFilter(nextStatusNameFilter);
+  }, [queryStatusId, queryStatusName]);
+
   const filtered = useMemo(() => {
     let list = items;
     if (statusFilter) {
       list = list.filter(
         (x) => String(x.applicationStatusId ?? "") === statusFilter,
+      );
+    } else if (statusNameFilter) {
+      list = list.filter(
+        (x) =>
+          String(x.applicationStatusName ?? "").trim() ===
+          statusNameFilter.trim(),
       );
     }
     if (search.trim()) {
@@ -249,7 +294,7 @@ export default function AdminJobApplications() {
       );
     }
     return list;
-  }, [items, statusFilter, search]);
+  }, [items, statusFilter, statusNameFilter, search]);
 
   const sorted = useMemo(() => {
     const list = [...filtered];
@@ -491,6 +536,163 @@ export default function AdminJobApplications() {
     }
   }
 
+  function openStatusEditor() {
+    if (!selected?.applicationStatusId) {
+      setStatusEditError("وضعیت فعلی درخواست نامشخص است.");
+    } else {
+      setStatusEditError("");
+    }
+    setNextStatusId("");
+    setStatusComment("");
+    setStatusEditOpen(true);
+  }
+
+  function normalizeHistoryList(data: any): ApplicantStatusHistoryItem[] {
+    const rawList: any[] = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.histories)
+      ? data.histories
+      : Array.isArray(data?.applicantStatusHistories)
+      ? data.applicantStatusHistories
+      : Array.isArray(data?.statusHistories)
+      ? data.statusHistories
+      : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.result)
+      ? data.result
+      : [];
+
+    return rawList.map((x) => ({
+      id: Number(x?.statusHistoryId ?? x?.id ?? 0),
+      applicantStatusId:
+        x?.applicantStatusId != null ? Number(x.applicantStatusId) : null,
+      applicantStatusName: String(
+        x?.applicantStatusName ?? x?.statusName ?? x?.title ?? "نامشخص",
+      ),
+      comment: String(x?.comment ?? ""),
+      changedByUserName: String(
+        x?.changedByUserName ?? x?.userName ?? x?.changedBy ?? "—",
+      ),
+      changedDate:
+        x?.changedDate ?? x?.createdDate ?? x?.changeDate ?? x?.date ?? null,
+    }));
+  }
+
+  async function openHistoryModal() {
+    if (!selected?.applicantId) {
+      setHistoryError("شناسه متقاضی موجود نیست.");
+      setHistoryItems([]);
+      setHistoryOpen(true);
+      return;
+    }
+
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    setHistoryError("");
+    setHistoryItems([]);
+    try {
+      const { data, res } = await apiFetch<any>(`/api/ApplicantStatusHistories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applicantId: Number(selected.applicantId),
+          applicantStatusId: null,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setHistoryItems(normalizeHistoryList(data));
+    } catch (e: any) {
+      setHistoryError(e?.message ?? "خطا در دریافت سوابق وضعیت");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function submitStatusChange() {
+    if (!selected?.jobApplicationId || !selected?.applicantId || !selected?.jobGroupId) {
+      setStatusEditError("اطلاعات درخواست کامل نیست.");
+      return;
+    }
+
+    const currentStatus = Number(selected.applicationStatusId ?? 0);
+    const next = Number(nextStatusId || 0);
+    if (!next || !Number.isFinite(next)) {
+      setStatusEditError("وضعیت جدید را انتخاب کنید.");
+      return;
+    }
+    if (currentStatus === next) {
+      setStatusEditError("وضعیت جدید نمی‌تواند با وضعیت فعلی یکسان باشد.");
+      return;
+    }
+    setStatusEditBusy(true);
+    setStatusEditError("");
+    try {
+      const appliedDate =
+        selected.appliedDate ?? selected.createdDate ?? new Date().toISOString();
+
+      const { res: updateRes } = await apiFetch<any>(
+        `/api/JobApplications/${selected.jobApplicationId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobApplicationId: Number(selected.jobApplicationId),
+            jobGroupId: Number(selected.jobGroupId),
+            applicationStatusId: next,
+            appliedDate,
+          }),
+        },
+      );
+      if (!updateRes.ok) throw new Error(`خطا در بروزرسانی درخواست (HTTP ${updateRes.status})`);
+
+      const { res: historyRes } = await apiFetch<any>(
+        `/api/ApplicantStatusHistories/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            applicantId: Number(selected.applicantId),
+            applicantStatusId: next,
+            changedByUserId: Number(state?.user?.userId ?? 0),
+            comment: statusComment.trim() || null,
+          }),
+        },
+      );
+      if (!historyRes.ok) throw new Error(`خطا در ثبت تاریخچه وضعیت (HTTP ${historyRes.status})`);
+
+      const nextTitle =
+        statusMap.get(next) ??
+        statusOptions.find((x) => Number(x.id) === next)?.title ??
+        selected.applicationStatusName ??
+        "";
+
+      setItems((prev) =>
+        prev.map((x) =>
+          Number(x.jobApplicationId) === Number(selected.jobApplicationId)
+            ? { ...x, applicationStatusId: next, applicationStatusName: nextTitle }
+            : x,
+        ),
+      );
+      setSelected((prev) =>
+        prev
+          ? { ...prev, applicationStatusId: next, applicationStatusName: nextTitle }
+          : prev,
+      );
+      setDetail((prev) =>
+        prev ? { ...prev, applicantStatusName: nextTitle || prev.applicantStatusName } : prev,
+      );
+
+      setStatusEditOpen(false);
+      if (historyOpen) {
+        await openHistoryModal();
+      }
+    } catch (e: any) {
+      setStatusEditError(e?.message ?? "خطا در تغییر وضعیت درخواست");
+    } finally {
+      setStatusEditBusy(false);
+    }
+  }
+
   const statusMap = useMemo(() => {
     const map = new Map<number, string>();
     statusOptions.forEach((s) => {
@@ -529,7 +731,10 @@ export default function AdminJobApplications() {
           />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setStatusNameFilter("");
+            }}
             className="rounded-lg border px-3 py-2 text-sm"
           >
             <option value="">همه وضعیت‌ها</option>
@@ -712,6 +917,22 @@ export default function AdminJobApplications() {
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
                 >
                   {resumeBusy ? "در حال دریافت..." : "دریافت رزومه"}
+                </button>
+                <button
+                  type="button"
+                  onClick={openStatusEditor}
+                  disabled={!selected?.jobApplicationId}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+                >
+                  تغییر وضعیت
+                </button>
+                <button
+                  type="button"
+                  onClick={openHistoryModal}
+                  disabled={!selected?.applicantId}
+                  className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-sm text-white shadow-sm hover:bg-violet-700 disabled:opacity-60"
+                >
+                  سوابق وضعیت
                 </button>
                 <button
                   type="button"
@@ -928,6 +1149,148 @@ export default function AdminJobApplications() {
             ) : (
               <div className="text-sm text-gray-500">تصویر موجود نیست.</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {statusEditOpen && selected && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => !statusEditBusy && setStatusEditOpen(false)}
+          />
+          <div className="relative w-full max-w-md rounded-2xl border bg-white shadow-lg p-4">
+            <div className="text-sm text-gray-500">تغییر وضعیت درخواست</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              {selected.applicantName ?? `درخواست #${selected.jobApplicationId ?? "—"}`}
+            </div>
+
+            <div className="mt-4 text-sm">
+              <div className="text-gray-500">وضعیت فعلی</div>
+              <div className="font-semibold text-gray-900 mt-1">
+                {statusMap.get(Number(selected.applicationStatusId ?? 0)) ??
+                  selected.applicationStatusName ??
+                  "نامشخص"}
+              </div>
+            </div>
+
+            <label className="mt-4 block text-sm">
+              <div className="text-gray-500 mb-1">وضعیت جدید</div>
+              <select
+                value={nextStatusId}
+                onChange={(e) => {
+                  setNextStatusId(e.target.value);
+                  setStatusEditError("");
+                }}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              >
+                <option value="">انتخاب کنید</option>
+                {statusOptions.map((s) => (
+                  <option key={s.id} value={String(s.id)}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="mt-4 block text-sm">
+              <div className="text-gray-500 mb-1">کامنت تغییر وضعیت (اختیاری)</div>
+              <textarea
+                value={statusComment}
+                onChange={(e) => {
+                  setStatusComment(e.target.value);
+                  setStatusEditError("");
+                }}
+                rows={3}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                placeholder="علت یا توضیح تغییر وضعیت را بنویسید"
+              />
+            </label>
+
+            {!!statusEditError && (
+              <div className="mt-3 text-sm text-red-600">{statusEditError}</div>
+            )}
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setStatusEditOpen(false)}
+                disabled={statusEditBusy}
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                onClick={submitStatusChange}
+                disabled={statusEditBusy}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {statusEditBusy ? "در حال ذخیره..." : "ثبت تغییر وضعیت"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {historyOpen && selected && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setHistoryOpen(false)}
+          />
+          <div className="relative w-full max-w-3xl rounded-2xl border bg-white shadow-lg max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <div className="text-sm text-gray-500">سوابق تغییر وضعیت</div>
+                <div className="font-semibold text-gray-900">
+                  {selected.applicantName ?? `متقاضی #${selected.applicantId ?? "—"}`}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+              >
+                بستن
+              </button>
+            </div>
+
+            <div className="p-4 overflow-auto max-h-[60vh]">
+              {historyLoading && (
+                <div className="text-sm text-gray-600">در حال بارگذاری...</div>
+              )}
+              {!historyLoading && !!historyError && (
+                <div className="text-sm text-red-600">{historyError}</div>
+              )}
+              {!historyLoading && !historyError && historyItems.length === 0 && (
+                <div className="text-sm text-gray-600">
+                  سابقه‌ای برای نمایش وجود ندارد.
+                </div>
+              )}
+              {!historyLoading && !historyError && historyItems.length > 0 && (
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-3 py-2 text-right">تاریخ</th>
+                      <th className="px-3 py-2 text-right">وضعیت</th>
+                      <th className="px-3 py-2 text-right">کاربر</th>
+                      <th className="px-3 py-2 text-right">کامنت</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyItems.map((h, idx) => (
+                      <tr key={`${h.id || idx}-${idx}`} className="border-t">
+                        <td className="px-3 py-2">{formatFaDateTime(h.changedDate)}</td>
+                        <td className="px-3 py-2">{h.applicantStatusName}</td>
+                        <td className="px-3 py-2">{h.changedByUserName || "—"}</td>
+                        <td className="px-3 py-2">{h.comment || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}

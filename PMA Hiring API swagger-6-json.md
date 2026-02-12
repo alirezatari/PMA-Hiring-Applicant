@@ -973,6 +973,78 @@
         }
       }
     },
+    "/api/JobGroups/counts": {
+      "post": {
+        "tags": [
+          "JobGroups"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json-patch+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetJobGroupsWithCountsRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetJobGroupsWithCountsRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetJobGroupsWithCountsRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetJobGroupsWithCountsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/JobGroups/statuscounts": {
+      "post": {
+        "tags": [
+          "JobGroups"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json-patch+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetJobGroupsStatusCountsRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetJobGroupsStatusCountsRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetJobGroupsStatusCountsRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetJobGroupsStatusCountsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/JobGroups/{jobGroupId}": {
       "get": {
         "tags": [
@@ -1588,6 +1660,34 @@
         "additionalProperties": false
       },
       "GetJobGroupsRequest": {
+        "type": "object",
+        "properties": {
+          "searchKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "GetJobGroupsStatusCountsRequest": {
+        "type": "object",
+        "properties": {
+          "searchKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "GetJobGroupsWithCountsRequest": {
         "type": "object",
         "properties": {
           "searchKey": {

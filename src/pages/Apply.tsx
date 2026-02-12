@@ -466,7 +466,6 @@ export default function Apply() {
     const city = toInt(cityId)!;
 
     setSubmitting(true);
-    setSubmitting(true);
 
     try {
       const formData = new FormData();
@@ -493,21 +492,62 @@ export default function Apply() {
         formData.append("workExperienceYears", workExperienceYears);
       if (description) formData.append("description", description);
 
-      const response = await apiFetch<any>(`/api/Applicants/create`, {
-        method: "POST",
-        body: formData,
-      });
+      const { data: applicantData, res: applicantRes } = await apiFetch<any>(
+        `/api/Applicants/create`,
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
+      await throwIfNotOk(applicantRes);
 
-      if (response?.res?.ok) {
-        setSuccess(true);
-        setFieldErrors({});
-        localStorage.setItem(`pma_applied_${jobIdNum}`, "true");
-      } else {
-        setError("خطا در ثبت درخواست همکاری.");
+      let applicantId = pickApplicantId(applicantData);
+      if (!applicantId) {
+        const key = mobile.trim() || nationalCode.trim() || email.trim();
+        applicantId = await resolveApplicantIdFromSearchKey(key);
       }
-    } catch (e) {
+      if (!applicantId) {
+        throw new Error("شناسه متقاضی برای ثبت درخواست شغلی دریافت نشد.");
+      }
+
+      const appliedDate = new Date().toISOString();
+      const initialStatusId = 1;
+
+      const { res: jobAppRes } = await apiFetch<any>(`/api/JobApplications/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applicantId,
+          jobGroupId: jobIdNum,
+          applicationStatusId: initialStatusId,
+          appliedDate,
+        }),
+      });
+      await throwIfNotOk(jobAppRes);
+
+      const { res: historyRes } = await apiFetch<any>(
+        `/api/ApplicantStatusHistories/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            applicantId,
+            applicantStatusId: initialStatusId,
+            changedByUserId: 0,
+            comment: "ثبت اولیه درخواست",
+          }),
+        },
+      );
+      await throwIfNotOk(historyRes);
+
+      setSuccess(true);
+      setFieldErrors({});
+      localStorage.setItem(`pma_applied_${jobIdNum}`, "true");
+    } catch (e: any) {
       setError(
-        e?.message ?? "خطا در ثبت درخواست همکاری. لطفاً دوباره تلاش کنید."
+        e?.body ??
+          e?.message ??
+          "خطا در ثبت درخواست همکاری. لطفاً دوباره تلاش کنید."
       );
     } finally {
       setSubmitting(false);
