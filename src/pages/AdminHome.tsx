@@ -87,11 +87,19 @@ function normalizeStatusList(value: any): StatusCount[] {
       );
       return {
         statusId: Number(
-          x?.applicationStatusId ?? x?.ApplicationStatusId ?? x?.statusId ?? x?.id ?? 0,
+          x?.applicationStatusId ??
+            x?.ApplicationStatusId ??
+            x?.applicantStatusId ??
+            x?.ApplicantStatusId ??
+            x?.statusId ??
+            x?.id ??
+            0,
         ),
         statusName: String(
           x?.applicationStatusName ??
             x?.ApplicationStatusName ??
+            x?.applicantStatusName ??
+            x?.ApplicantStatusName ??
             x?.statusName ??
             x?.name ??
             x?.title ??

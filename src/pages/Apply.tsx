@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { apiFetch, pickApplicantId, throwIfNotOk } from "../api";
-
-import DatePicker from "react-multi-date-picker";
-import persian from "react-date-object/calendars/persian";
-import persian_fa from "react-date-object/locales/persian_fa";
-import type { DateObject } from "react-multi-date-picker";
+import {
+  apiFetch,
+  pickApplicantId,
+  pickJobApplicationId,
+  throwIfNotOk,
+} from "../api";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -90,6 +90,107 @@ function normalizeCities(data: any): City[] {
     .filter((x) => Number(x.cityId) > 0);
 }
 
+function div(a: number, b: number): number {
+  return Math.floor(a / b);
+}
+
+function mod(a: number, b: number): number {
+  return a - Math.floor(a / b) * b;
+}
+
+function jalCal(jy: number) {
+  const breaks = [
+    -61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181, 1210, 1635, 2060, 2097,
+    2192, 2262, 2324, 2394, 2456, 3178,
+  ];
+  const bl = breaks.length;
+  const gy = jy + 621;
+  let leapJ = -14;
+  let jp = breaks[0];
+  let jm = 0;
+  let jump = 0;
+
+  if (jy < jp || jy >= breaks[bl - 1]) return { leap: 0, gy, march: 0 };
+
+  for (let i = 1; i < bl; i += 1) {
+    jm = breaks[i];
+    jump = jm - jp;
+    if (jy < jm) break;
+    leapJ = leapJ + div(jump, 33) * 8 + div(mod(jump, 33), 4);
+    jp = jm;
+  }
+  let n = jy - jp;
+  leapJ = leapJ + div(n, 33) * 8 + div(mod(n, 33) + 3, 4);
+  if (mod(jump, 33) === 4 && jump - n === 4) leapJ += 1;
+  const leapG = div(gy, 4) - div((div(gy, 100) + 1) * 3, 4) - 150;
+  const march = 20 + leapJ - leapG;
+  if (jump - n < 6) n = n - jump + div(jump + 4, 33) * 33;
+  let leap = mod(mod(n + 1, 33) - 1, 4);
+  if (leap === -1) leap = 4;
+  return { leap, gy, march };
+}
+
+function isLeapJalaliYear(jy: number): boolean {
+  return jalCal(jy).leap === 0;
+}
+
+function jalaaliMonthLength(jy: number, jm: number): number {
+  if (jm <= 6) return 31;
+  if (jm <= 11) return 30;
+  return isLeapJalaliYear(jy) ? 30 : 29;
+}
+
+function isValidJalaliDate(jy: number, jm: number, jd: number): boolean {
+  if (jy < 1 || jy > 3177) return false;
+  if (jm < 1 || jm > 12) return false;
+  if (jd < 1 || jd > jalaaliMonthLength(jy, jm)) return false;
+  return true;
+}
+
+function g2d(gy: number, gm: number, gd: number): number {
+  let d =
+    div((gy + div(gm - 8, 6) + 100100) * 1461, 4) +
+    div(153 * mod(gm + 9, 12) + 2, 5) +
+    gd -
+    34840408;
+  d = d - div(div(gy + 100100 + div(gm - 8, 6), 100) * 3, 4) + 752;
+  return d;
+}
+
+function d2g(jdn: number) {
+  let j = 4 * jdn + 139361631;
+  j = j + div(div(4 * jdn + 183187720, 146097) * 3, 4) * 4 - 3908;
+  const i = div(mod(j, 1461), 4) * 5 + 308;
+  const gd = div(mod(i, 153), 5) + 1;
+  const gm = mod(div(i, 153), 12) + 1;
+  const gy = div(j, 1461) - 100100 + div(8 - gm, 6);
+  return { gy, gm, gd };
+}
+
+function j2d(jy: number, jm: number, jd: number): number {
+  const r = jalCal(jy);
+  return g2d(r.gy, 3, r.march) + (jm - 1) * 31 - div(jm, 7) * (jm - 7) + jd - 1;
+}
+
+function toGregorian(jy: number, jm: number, jd: number) {
+  return d2g(j2d(jy, jm, jd));
+}
+
+function toEnglishDigits(value: string): string {
+  const fa = "۰۱۲۳۴۵۶۷۸۹";
+  const ar = "٠١٢٣٤٥٦٧٨٩";
+  return value
+    .split("")
+    .map((ch) => {
+      const faIndex = fa.indexOf(ch);
+      if (faIndex >= 0) return String(faIndex);
+      const arIndex = ar.indexOf(ch);
+      if (arIndex >= 0) return String(arIndex);
+      return ch;
+    })
+    .join("");
+}
+
 // /**
 //  * Reads a file as Base64 *string only* (no "data:*/*;base64," prefix)
 //  */
@@ -119,9 +220,11 @@ export default function Apply() {
   const [email, setEmail] = useState("");
   const [linkedInLink, setLinkedInLink] = useState("");
 
-  // 4) جنسیت و تاریخ تولد (فقط با picker پر می‌شود)
+  // 4) جنسیت و تاریخ تولد
   const [gender, setGender] = useState<string>("");
-  const [birthDateJalali, setBirthDateJalali] = useState<string>(""); // UI
+  const [birthYear, setBirthYear] = useState<string>("");
+  const [birthMonth, setBirthMonth] = useState<string>("");
+  const [birthDay, setBirthDay] = useState<string>("");
   const [birthDateIso, setBirthDateIso] = useState<string>(""); // API
 
   // 5) وضعیت تاهل و وضعیت سربازی (زن disabled)
@@ -148,9 +251,9 @@ export default function Apply() {
 
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const resumeInputRef = useRef<HTMLInputElement | null>(null);
-
-  const birthDatePickerRef = useRef<any>(null);
-  const birthOpenJustNowRef = useRef(false);
+  const formScrollRef = useRef<HTMLDivElement | null>(null);
+  const formContentRef = useRef<HTMLDivElement | null>(null);
+  const [showScrollHint, setShowScrollHint] = useState(false);
 
   // dropdown data
   const [provinces, setProvinces] = useState<Province[]>([]);
@@ -164,6 +267,36 @@ export default function Apply() {
   useEffect(() => {
     if (isFemale) setMilitaryStatus("");
   }, [isFemale]);
+
+  useEffect(() => {
+    const scroller = formScrollRef.current;
+    if (!scroller) return;
+
+    const updateScrollHint = () => {
+      const hiddenBottom =
+        scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+      setShowScrollHint(hiddenBottom > 8);
+    };
+
+    updateScrollHint();
+    scroller.addEventListener("scroll", updateScrollHint, { passive: true });
+    window.addEventListener("resize", updateScrollHint);
+
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(updateScrollHint)
+        : null;
+    if (ro) {
+      ro.observe(scroller);
+      if (formContentRef.current) ro.observe(formContentRef.current);
+    }
+
+    return () => {
+      scroller.removeEventListener("scroll", updateScrollHint);
+      window.removeEventListener("resize", updateScrollHint);
+      ro?.disconnect();
+    };
+  }, []);
 
   // Load job title for header (best-effort)
   useEffect(() => {
@@ -276,6 +409,87 @@ export default function Apply() {
     return subset.length ? subset : cities;
   }, [provinceId, cities]);
 
+  const currentJalaliYear = useMemo(() => {
+    const y = toEnglishDigits(
+      new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric" }).format(
+        new Date(),
+      ),
+    ).replace(/[^\d]/g, "");
+    const n = Number(y);
+    return Number.isFinite(n) && n > 1300 ? n : 1405;
+  }, []);
+
+  const yearOptions = useMemo(() => {
+    const years: number[] = [];
+    for (let y = currentJalaliYear; y >= 1300; y -= 1) years.push(y);
+    return years;
+  }, [currentJalaliYear]);
+
+  const monthOptions = useMemo(
+    () => [
+      { value: 1, label: "فروردین" },
+      { value: 2, label: "اردیبهشت" },
+      { value: 3, label: "خرداد" },
+      { value: 4, label: "تیر" },
+      { value: 5, label: "مرداد" },
+      { value: 6, label: "شهریور" },
+      { value: 7, label: "مهر" },
+      { value: 8, label: "آبان" },
+      { value: 9, label: "آذر" },
+      { value: 10, label: "دی" },
+      { value: 11, label: "بهمن" },
+      { value: 12, label: "اسفند" },
+    ],
+    [],
+  );
+
+  const maxDay = useMemo(() => {
+    const jy = toInt(birthYear);
+    const jm = toInt(birthMonth);
+    if (!jy || !jm) return 31;
+    return jalaaliMonthLength(jy, jm);
+  }, [birthYear, birthMonth]);
+
+  const dayOptions = useMemo(() => {
+    const days: number[] = [];
+    for (let d = 1; d <= maxDay; d += 1) days.push(d);
+    return days;
+  }, [maxDay]);
+
+  useEffect(() => {
+    const d = toInt(birthDay);
+    if (d && d > maxDay) {
+      setBirthDay("");
+      clearFieldError("birthDateIso");
+    }
+  }, [birthDay, maxDay]);
+
+  useEffect(() => {
+    const jy = toInt(birthYear);
+    const jm = toInt(birthMonth);
+    const jd = toInt(birthDay);
+    if (!jy || !jm || !jd) {
+      setBirthDateIso("");
+      return;
+    }
+    if (!isValidJalaliDate(jy, jm, jd)) {
+      setBirthDateIso("");
+      return;
+    }
+
+    const g = toGregorian(jy, jm, jd);
+    const birth = new Date(g.gy, g.gm - 1, g.gd);
+    const today = new Date();
+    const todayNoTime = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    if (Number.isNaN(birth.getTime()) || birth > todayNoTime) {
+      setBirthDateIso("");
+      return;
+    }
+    const mm = String(g.gm).padStart(2, "0");
+    const dd = String(g.gd).padStart(2, "0");
+    setBirthDateIso(`${g.gy}-${mm}-${dd}T00:00:00`);
+  }, [birthYear, birthMonth, birthDay]);
+
   async function resolveApplicantIdFromSearchKey(
     searchKey: string
   ): Promise<number | null> {
@@ -298,6 +512,42 @@ export default function Apply() {
       : [];
 
     return pickApplicantId(list[0]);
+  }
+
+  async function resolveJobApplicationId(
+    applicantId: number,
+    jobGroupId: number,
+  ): Promise<number | null> {
+    const { data, res } = await apiFetch<any>(`/api/JobApplications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        applicantId,
+        jobGroupId,
+        applicationStatusId: null,
+      }),
+    });
+    if (!res.ok) return null;
+
+    const list: any[] = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.jobApplications)
+      ? data.jobApplications
+      : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.result)
+      ? data.result
+      : [];
+
+    const sorted = list
+      .filter((x) => Number(x?.jobApplicationId ?? x?.id) > 0)
+      .sort((a, b) => {
+        const ad = new Date(a?.createdDate ?? a?.appliedDate ?? 0).getTime();
+        const bd = new Date(b?.createdDate ?? b?.appliedDate ?? 0).getTime();
+        return bd - ad;
+      });
+
+    return pickJobApplicationId(sorted[0]);
   }
 
   function clearFieldError(key: string) {
@@ -513,7 +763,7 @@ export default function Apply() {
       const appliedDate = new Date().toISOString();
       const initialStatusId = 1;
 
-      const { res: jobAppRes } = await apiFetch<any>(`/api/JobApplications/create`, {
+      const { data: jobAppData, res: jobAppRes } = await apiFetch<any>(`/api/JobApplications/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -525,13 +775,21 @@ export default function Apply() {
       });
       await throwIfNotOk(jobAppRes);
 
+      let jobApplicationId = pickJobApplicationId(jobAppData);
+      if (!jobApplicationId) {
+        jobApplicationId = await resolveJobApplicationId(applicantId, jobIdNum);
+      }
+      if (!jobApplicationId) {
+        throw new Error("شناسه درخواست برای ثبت تاریخچه وضعیت دریافت نشد.");
+      }
+
       const { res: historyRes } = await apiFetch<any>(
         `/api/ApplicantStatusHistories/create`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            applicantId,
+            jobApplicationId,
             applicantStatusId: initialStatusId,
             changedByUserId: 0,
             comment: "ثبت اولیه درخواست",
@@ -591,34 +849,36 @@ export default function Apply() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-2xl px-4 py-8">
-        <div className="mb-5 flex justify-end">
-          <button
-            onClick={() => navigate(-1)}
-            className="rounded-xl border bg-white px-4 py-2 text-sm hover:bg-gray-50"
-          >
-            بازگشت
-          </button>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-extrabold text-gray-900">
-            ثبت درخواست همکاری
-          </h1>
-          <div className="mt-2 text-sm text-gray-600">
-            رشته شغلی:{" "}
-            <span className="font-semibold text-gray-800">
-              ({jobTitle || jobGroupId})
-            </span>
+      <div className="mx-auto max-w-6xl px-4 pt-0 pb-0">
+        <div className="rounded-2xl border bg-white p-4 shadow-sm flex flex-col max-h-[calc(100vh-72px)]">
+          <div className="mb-2 flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-extrabold text-gray-900">
+                ثبت درخواست همکاری
+              </h1>
+              <div className="mt-1 text-sm text-gray-600">
+                رشته شغلی:{" "}
+                <span className="font-semibold text-gray-800">
+                  ({jobTitle || jobGroupId})
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate(-1)}
+              className="shrink-0 rounded-xl border bg-white px-4 py-1.5 text-sm hover:bg-gray-50"
+            >
+              بازگشت
+            </button>
           </div>
 
           {alreadyApplied && (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               به نظر می‌رسد برای این شغل قبلاً درخواست ثبت کرده‌اید.
             </div>
           )}
 
-          <div className="mt-6 grid grid-cols-1 gap-4">
+          <div ref={formScrollRef} className="mt-2 flex-1 overflow-y-auto pr-1">
+          <div ref={formContentRef} className="grid grid-cols-1 gap-4">
             {/* 1) نام و نام خانوادگی */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <label className="text-sm">
@@ -746,61 +1006,61 @@ export default function Apply() {
                 <div className="mb-1 font-semibold text-gray-800">
                   تاریخ تولد *
                 </div>
-                <DatePicker
-                  ref={birthDatePickerRef}
-                  calendar={persian}
-                  locale={persian_fa}
-                  value={birthDateJalali ? birthDateJalali : undefined} // فقط وقتی مقدار داریم نشون بده
-                  onChange={(date: DateObject | null) => {
-                    // جلوگیری از انتخاب خودکار تاریخ امروز در اولین کلیک وقتی مقدار خالی است
-                    if (birthOpenJustNowRef.current && !birthDateJalali) {
-                      birthOpenJustNowRef.current = false;
-                      return;
-                    }
-                    birthOpenJustNowRef.current = false;
+                <div className="grid grid-cols-3 gap-2">
+                  <select
+                    value={birthYear}
+                    onChange={(e) => {
+                      setBirthYear(e.target.value);
+                      clearFieldError("birthDateIso");
+                    }}
+                    className={`w-full rounded-xl border px-2 py-2 text-sm ${
+                      fieldErrors.birthDateIso ? "border-red-500" : ""
+                    }`}
+                  >
+                    <option value="">سال</option>
+                    {yearOptions.map((y) => (
+                      <option key={y} value={String(y)}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
 
-                    if (!date) {
-                      setBirthDateJalali("");
-                      setBirthDateIso("");
-                      return;
-                    }
+                  <select
+                    value={birthMonth}
+                    onChange={(e) => {
+                      setBirthMonth(e.target.value);
+                      clearFieldError("birthDateIso");
+                    }}
+                    className={`w-full rounded-xl border px-2 py-2 text-sm ${
+                      fieldErrors.birthDateIso ? "border-red-500" : ""
+                    }`}
+                  >
+                    <option value="">ماه</option>
+                    {monthOptions.map((m) => (
+                      <option key={m.value} value={String(m.value)}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
 
-                    const jalaliStr = date.format("YYYY/MM/DD");
-                    setBirthDateJalali(jalaliStr);
-                    setBirthDateIso(date.toDate().toISOString());
-
-                    clearFieldError("birthDateIso");
-
-                    setTimeout(() => {
-                      birthDatePickerRef.current?.closeCalendar?.();
-                    }, 100);
-                  }}
-                  format="YYYY/MM/DD"
-                  calendarPosition="bottom-right"
-                  containerStyle={{ width: "100%" }}
-                  // مهم‌ترین بخش: جلوگیری از انتخاب خودکار امروز
-                  disableDayPicker={false} // معمولاً لازم نیست اما برای اطمینان
-                  // اگر نسخه‌ات اجازه می‌دهد:
-                  // highlightToday={false}          // اگر prop وجود داشت (بعضی نسخه‌ها دارند)
-                  render={(value, openCalendar) => (
-                    <input
-                      value={birthDateJalali || ""}
-                      readOnly
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (!birthDateJalali)
-                          birthOpenJustNowRef.current = true;
-                        openCalendar();
-                      }}
-                      className={`w-full rounded-xl border px-3 py-2 text-sm cursor-pointer bg-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
-                        fieldErrors.birthDateIso ? "border-red-500" : ""
-                      }`}
-                      placeholder="انتخاب تاریخ"
-                      dir="ltr"
-                    />
-                  )}
-                />
+                  <select
+                    value={birthDay}
+                    onChange={(e) => {
+                      setBirthDay(e.target.value);
+                      clearFieldError("birthDateIso");
+                    }}
+                    className={`w-full rounded-xl border px-2 py-2 text-sm ${
+                      fieldErrors.birthDateIso ? "border-red-500" : ""
+                    }`}
+                  >
+                    <option value="">روز</option>
+                    {dayOptions.map((d) => (
+                      <option key={d} value={String(d)}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </label>
             </div>
             {/* 5) وضعیت تاهل و وضعیت سربازی */}
@@ -1090,14 +1350,20 @@ export default function Apply() {
               </div>
             </div>
           </div>
+          </div>
 
-          {!!error && (
-            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {error}
+          {showScrollHint && (
+            <div className="mt-1 text-center text-[11px] text-gray-400">
+              ادامه فرم پایین صفحه است
             </div>
           )}
 
-          <div className="mt-6">
+          <div className="mt-2 border-t bg-white pt-3">
+            {!!error && (
+              <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {error}
+              </div>
+            )}
             <button
               onClick={onSubmit}
               disabled={submitting}

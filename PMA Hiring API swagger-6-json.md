@@ -507,6 +507,30 @@
         }
       }
     },
+    "/api/Captcha": {
+      "get": {
+        "tags": [
+          "Captcha"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/Captcha/image": {
+      "get": {
+        "tags": [
+          "Captcha"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/Cities": {
       "post": {
         "tags": [
@@ -1465,6 +1489,14 @@
           "secret": {
             "type": "string",
             "nullable": true
+          },
+          "captchaId": {
+            "type": "string",
+            "nullable": true
+          },
+          "captchaValue": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -1472,7 +1504,7 @@
       "CreateApplicantStatusHistoryCommand": {
         "type": "object",
         "properties": {
-          "applicantId": {
+          "jobApplicationId": {
             "type": "integer",
             "format": "int32"
           },
@@ -1570,7 +1602,7 @@
       "GetApplicantStatusHistoriesRequest": {
         "type": "object",
         "properties": {
-          "applicantId": {
+          "jobApplicationId": {
             "type": "integer",
             "format": "int32",
             "nullable": true

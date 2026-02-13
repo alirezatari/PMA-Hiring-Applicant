@@ -93,6 +93,23 @@ export function pickApplicantId(payload: any): number | null {
   return null;
 }
 
+export function pickJobApplicationId(payload: any): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidates = [
+    payload.jobApplicationId,
+    payload.id,
+    payload.data?.jobApplicationId,
+    payload.data?.id,
+    payload.result?.jobApplicationId,
+    payload.result?.id,
+  ];
+  for (const x of candidates) {
+    const n = Number(x);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
 export async function throwIfNotOk(res: Response) {
   if (res.ok) return;
   const body = await readTextSafe(res);

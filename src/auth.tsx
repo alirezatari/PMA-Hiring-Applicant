@@ -19,7 +19,11 @@ type AuthState = {
 type AuthContextValue = {
   state: AuthState | null;
   ready: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (
+    username: string,
+    password: string,
+    captcha?: { captchaId?: string; captchaValue?: string; secret?: string }
+  ) => Promise<void>;
   logout: () => void;
 };
 
@@ -47,11 +51,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setReady(true);
   }, []);
 
-  async function login(username: string, password: string) {
+  async function login(
+    username: string,
+    password: string,
+    captcha?: { captchaId?: string; captchaValue?: string; secret?: string }
+  ) {
+    const payload: Record<string, any> = {
+      username,
+      password,
+    };
+    if (captcha?.captchaId) payload.captchaId = captcha.captchaId;
+    if (captcha?.captchaValue) payload.captchaValue = captcha.captchaValue;
+    if (captcha?.secret) payload.secret = captcha.secret;
+
     const { data, res } = await apiFetch<any>(`/api/Authenticate/authenticate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok || !data?.token) {

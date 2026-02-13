@@ -1,16 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
+import { API_BASE, apiFetch } from "../api";
 
-const CAPTCHA_LEN = 5;
-const CAPTCHA_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+type CaptchaState = {
+  captchaId: string;
+  secret: string;
+  imageUrl: string;
+};
 
-function randomCaptcha() {
-  let out = "";
-  for (let i = 0; i < CAPTCHA_LEN; i += 1) {
-    out += CAPTCHA_CHARS[Math.floor(Math.random() * CAPTCHA_CHARS.length)];
-  }
-  return out;
+function normalizeCaptcha(data: any): Omit<CaptchaState, "imageUrl"> {
+  return {
+    captchaId: String(
+      data?.captchaId ?? data?.captchaID ?? data?.id ?? data?.captchaKey ?? "",
+    ).trim(),
+    secret: String(
+      data?.secret ?? data?.captchaSecret ?? data?.captchaToken ?? "",
+    ).trim(),
+  };
 }
 
 export default function Login() {
@@ -20,74 +27,82 @@ export default function Login() {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [captchaText, setCaptchaText] = useState<string>(() => randomCaptcha());
+  const [captcha, setCaptcha] = useState<CaptchaState | null>(null);
+  const [captchaLoading, setCaptchaLoading] = useState(false);
   const [captchaInput, setCaptchaInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    refreshCaptcha();
+  }, []);
 
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "#f8fafc";
-    ctx.fillRect(0, 0, w, h);
+  async function refreshCaptcha() {
+    setCaptchaLoading(true);
+    try {
+      const { data, res } = await apiFetch<any>(`/api/Captcha`, { method: "GET" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const base = normalizeCaptcha(data);
+      if (!base.captchaId) throw new Error("captchaId دریافت نشد");
 
-    // noise lines
-    for (let i = 0; i < 3; i += 1) {
-      ctx.strokeStyle = `rgba(59,130,246,${0.3 + i * 0.15})`;
-      ctx.beginPath();
-      ctx.moveTo(0, Math.random() * h);
-      ctx.lineTo(w, Math.random() * h);
-      ctx.stroke();
+      let imageUrl = "";
+      const ct = data?.imageContentType || data?.contentType || "image/png";
+      const b64 = data?.imageBase64 || data?.captchaImageBase64;
+      if (typeof b64 === "string" && b64.trim()) {
+        imageUrl = `data:${ct};base64,${b64}`;
+      } else {
+        imageUrl =
+          data?.imageUrl ||
+          data?.captchaImageUrl ||
+          `${API_BASE}/api/Captcha/image?captchaId=${encodeURIComponent(
+            base.captchaId,
+          )}&t=${Date.now()}`;
+      }
+
+      setCaptcha({
+        captchaId: base.captchaId,
+        secret: base.secret,
+        imageUrl,
+      });
+      setCaptchaInput("");
+    } catch (e: any) {
+      setCaptcha(null);
+      setError(e?.message ?? "خطا در دریافت کپچا");
+    } finally {
+      setCaptchaLoading(false);
     }
-
-    ctx.font = "bold 26px Arial";
-    ctx.fillStyle = "#1f2937";
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "center";
-    ctx.fillText(captchaText, w / 2, h / 2);
-  }, [captchaText]);
+  }
 
   const canSubmit = useMemo(() => {
     return (
       username.trim() &&
       password &&
       captchaInput.trim() &&
+      captcha?.captchaId &&
       !submitting
     );
-  }, [username, password, captchaInput, submitting]);
+  }, [username, password, captchaInput, captcha?.captchaId, submitting]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-
-    if (!import.meta.env.DEV) {
-      if (
-        captchaInput.trim().toUpperCase() !== captchaText.trim().toUpperCase()
-      ) {
-        setError("کد امنیتی نادرست است.");
-        setCaptchaText(randomCaptcha());
-        setCaptchaInput("");
-        return;
-      }
+    if (!captcha?.captchaId) {
+      setError("کپچا آماده نیست.");
+      return;
     }
 
     setSubmitting(true);
     try {
-      await login(username.trim(), password);
+      await login(username.trim(), password, {
+        captchaId: captcha.captchaId,
+        captchaValue: captchaInput.trim().toUpperCase(),
+        secret: captcha.secret || undefined,
+      });
       const next = location?.state?.from?.pathname || "/admin";
       navigate(next, { replace: true });
     } catch (e: any) {
       setError(e?.message ?? "ورود ناموفق بود.");
-      setCaptchaText(randomCaptcha());
-      setCaptchaInput("");
+      await refreshCaptcha();
     } finally {
       setSubmitting(false);
     }
@@ -131,15 +146,22 @@ export default function Login() {
             <div className="text-sm">
               <div className="mb-1 font-semibold text-gray-800">کد امنیتی</div>
               <div className="flex items-center gap-3">
-                <canvas
-                  ref={canvasRef}
-                  width={140}
-                  height={48}
-                  className="rounded-lg border bg-white"
-                />
+                <div className="h-12 w-[140px] rounded-lg border bg-white overflow-hidden flex items-center justify-center">
+                  {captchaLoading ? (
+                    <span className="text-xs text-gray-500">در حال دریافت...</span>
+                  ) : captcha?.imageUrl ? (
+                    <img
+                      src={captcha.imageUrl}
+                      alt="captcha"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-xs text-red-600">خطا</span>
+                  )}
+                </div>
                 <button
                   type="button"
-                  onClick={() => setCaptchaText(randomCaptcha())}
+                  onClick={refreshCaptcha}
                   className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
                 >
                   تازه‌سازی
