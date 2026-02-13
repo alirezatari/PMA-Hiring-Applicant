@@ -247,20 +247,26 @@ export default function AdminHome() {
 
       <div className="mt-4 rounded-2xl border bg-white p-4">
         <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-3">
-          <input
-            value={searchKey}
-            onChange={(e) => setSearchKey(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
-          />
-          <select
-            value={activity}
-            onChange={(e) => setActivity(e.target.value as ActivityFilter)}
-            className="rounded-lg border px-3 py-2 text-sm"
-          >
-            <option value="all">همه وضعیت‌ها</option>
-            <option value="active">فقط فعال</option>
-            <option value="inactive">فقط غیرفعال</option>
-          </select>
+          <label className="text-xs text-gray-600">
+            جستجو
+            <input
+              value={searchKey}
+              onChange={(e) => setSearchKey(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900"
+            />
+          </label>
+          <label className="text-xs text-gray-600">
+            وضعیت فعالیت
+            <select
+              value={activity}
+              onChange={(e) => setActivity(e.target.value as ActivityFilter)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="all">همه وضعیت‌ها</option>
+              <option value="active">فقط فعال</option>
+              <option value="inactive">فقط غیرفعال</option>
+            </select>
+          </label>
         </div>
       </div>
 

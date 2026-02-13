@@ -705,26 +705,32 @@ export default function AdminJobApplications() {
 
       <div className="mt-6 rounded-2xl border bg-white p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
-          />
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setStatusNameFilter("");
-            }}
-            className="rounded-lg border px-3 py-2 text-sm"
-          >
-            <option value="">همه وضعیت‌ها</option>
-            {statusOptions.map((s) => (
-              <option key={s.id} value={String(s.id)}>
-                {s.title || `وضعیت ${s.id}`}
-              </option>
-            ))}
-          </select>
+          <label className="text-xs text-gray-600">
+            جستجو
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900"
+            />
+          </label>
+          <label className="text-xs text-gray-600">
+            فیلتر وضعیت
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setStatusNameFilter("");
+              }}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="">همه وضعیت‌ها</option>
+              {statusOptions.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.title || `وضعیت ${s.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
