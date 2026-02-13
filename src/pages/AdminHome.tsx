@@ -251,7 +251,6 @@ export default function AdminHome() {
             value={searchKey}
             onChange={(e) => setSearchKey(e.target.value)}
             className="rounded-lg border px-3 py-2 text-sm"
-            placeholder="جستجو در عنوان موقعیت شغلی"
           />
           <select
             value={activity}

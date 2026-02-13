@@ -609,7 +609,7 @@ export default function AdminJobApplications() {
   }
 
   async function submitStatusChange() {
-    if (!selected?.jobApplicationId || !selected?.jobGroupId) {
+    if (!selected?.jobApplicationId) {
       setStatusEditError("اطلاعات درخواست کامل نیست.");
       return;
     }
@@ -627,26 +627,8 @@ export default function AdminJobApplications() {
     setStatusEditBusy(true);
     setStatusEditError("");
     try {
-      const appliedDate =
-        selected.appliedDate ?? selected.createdDate ?? new Date().toISOString();
-
-      const { res: updateRes } = await apiFetch<any>(
-        `/api/JobApplications/${selected.jobApplicationId}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jobApplicationId: Number(selected.jobApplicationId),
-            jobGroupId: Number(selected.jobGroupId),
-            applicationStatusId: next,
-            appliedDate,
-          }),
-        },
-      );
-      if (!updateRes.ok) throw new Error(`خطا در بروزرسانی درخواست (HTTP ${updateRes.status})`);
-
-      const { res: historyRes } = await apiFetch<any>(
-        `/api/ApplicantStatusHistories/create`,
+      const { res: changeRes } = await apiFetch<any>(
+        `/api/JobApplications/${selected.jobApplicationId}/change-status`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -658,7 +640,7 @@ export default function AdminJobApplications() {
           }),
         },
       );
-      if (!historyRes.ok) throw new Error(`خطا در ثبت تاریخچه وضعیت (HTTP ${historyRes.status})`);
+      if (!changeRes.ok) throw new Error(`خطا در تغییر وضعیت درخواست (HTTP ${changeRes.status})`);
 
       const nextTitle =
         statusMap.get(next) ??
@@ -727,7 +709,6 @@ export default function AdminJobApplications() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="rounded-lg border px-3 py-2 text-sm"
-            placeholder="جستجو: نام، موبایل، کد ملی"
           />
           <select
             value={statusFilter}
@@ -1203,7 +1184,6 @@ export default function AdminJobApplications() {
                 }}
                 rows={3}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
-                placeholder="علت یا توضیح تغییر وضعیت را بنویسید"
               />
             </label>
 

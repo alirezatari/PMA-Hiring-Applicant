@@ -171,7 +171,6 @@ export default function Login() {
                 value={captchaInput}
                 onChange={(e) => setCaptchaInput(e.target.value)}
                 className="mt-2 w-full rounded-xl border px-3 py-2 text-sm"
-                placeholder="کد بالا را وارد کنید"
                 dir="ltr"
               />
             </div>

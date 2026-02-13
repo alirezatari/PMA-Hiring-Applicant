@@ -951,6 +951,53 @@
         }
       }
     },
+    "/api/JobApplications/{jobApplicationId}/change-status": {
+      "post": {
+        "tags": [
+          "JobApplications"
+        ],
+        "parameters": [
+          {
+            "name": "jobApplicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json-patch+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeJobApplicationStatusCommand"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeJobApplicationStatusCommand"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeJobApplicationStatusCommand"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeJobApplicationStatusCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/JobGroups": {
       "post": {
         "tags": [
@@ -1495,6 +1542,28 @@
             "nullable": true
           },
           "captchaValue": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChangeJobApplicationStatusCommand": {
+        "type": "object",
+        "properties": {
+          "jobApplicationId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "applicantStatusId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "changedByUserId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "comment": {
             "type": "string",
             "nullable": true
           }

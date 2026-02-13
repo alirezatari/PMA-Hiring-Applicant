@@ -849,8 +849,8 @@ export default function Apply() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-6xl px-4 pt-0 pb-0">
-        <div className="rounded-2xl border bg-white p-4 shadow-sm flex flex-col max-h-[calc(100vh-72px)]">
+      <div className="mx-auto max-w-6xl px-4 pt-3 pb-0">
+        <div className="rounded-2xl border bg-white p-4 shadow-sm flex flex-col max-h-[calc(100vh-44px)]">
           <div className="mb-2 flex items-start justify-between gap-3">
             <div>
               <h1 className="text-xl font-extrabold text-gray-900">
@@ -892,7 +892,6 @@ export default function Apply() {
                   className={`w-full rounded-xl border px-3 py-2 text-sm ${
                     fieldErrors.firstName ? "border-red-500" : ""
                   }`}
-                  placeholder="مثلاً زهرا"
                 />
               </label>
 
@@ -909,7 +908,6 @@ export default function Apply() {
                   className={`w-full rounded-xl border px-3 py-2 text-sm ${
                     fieldErrors.lastName ? "border-red-500" : ""
                   }`}
-                  placeholder="مثلاً محمدی"
                 />
               </label>
             </div>
@@ -927,7 +925,6 @@ export default function Apply() {
                   className={`w-full rounded-xl border px-3 py-2 text-sm ${
                     fieldErrors.mobile ? "border-red-500" : ""
                   }`}
-                  placeholder="09xxxxxxxxx"
                   dir="ltr"
                 />
               </label>
@@ -940,7 +937,6 @@ export default function Apply() {
                   className={`w-full rounded-xl border px-3 py-2 text-sm ${
                     fieldErrors.email ? "border-red-500" : ""
                   }`}
-                  placeholder="xxxxxxxxxx"
                   dir="ltr"
                 />
               </label>
@@ -959,7 +955,6 @@ export default function Apply() {
                   className={`w-full rounded-xl border px-3 py-2 text-sm ${
                     fieldErrors.gender ? "border-red-500" : ""
                   }`}
-                  placeholder="name@example.com"
                   type="email"
                   dir="ltr"
                 />
@@ -973,7 +968,6 @@ export default function Apply() {
                   value={linkedInLink}
                   onChange={(e) => setLinkedInLink(e.target.value)}
                   className="w-full rounded-xl border px-3 py-2 text-sm"
-                  placeholder="https://linkedin.com/in/..."
                   dir="ltr"
                 />
               </label>
@@ -1185,7 +1179,6 @@ export default function Apply() {
                 value={educationField}
                 onChange={(e) => setEducationField(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 text-sm"
-                placeholder="مثلاً مهندسی نرم‌افزار"
               />
             </label>
 
@@ -1199,7 +1192,6 @@ export default function Apply() {
                   value={lastJobTitle}
                   onChange={(e) => setLastJobTitle(e.target.value)}
                   className="w-full rounded-xl border px-3 py-2 text-sm"
-                  placeholder="مثلاً کارشناس فروش"
                 />
               </label>
 
@@ -1211,7 +1203,6 @@ export default function Apply() {
                   value={workExperienceYears}
                   onChange={(e) => setWorkExperienceYears(e.target.value)}
                   className="w-full rounded-xl border px-3 py-2 text-sm"
-                  placeholder="مثلاً 3"
                   dir="ltr"
                 />
               </label>
@@ -1224,7 +1215,6 @@ export default function Apply() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full rounded-xl border px-3 py-2 text-sm"
-                placeholder="چند خط درباره خودتان"
                 rows={4}
               />
             </label>
