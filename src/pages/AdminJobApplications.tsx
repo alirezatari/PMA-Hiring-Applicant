@@ -7,6 +7,8 @@ type JobApplication = {
   jobApplicationId?: number;
   applicantId?: number;
   jobGroupId?: number;
+  educationLevelId?: number | null;
+  educationLevelTitle?: string | null;
   applicationStatusId?: number | null;
   applicationStatusName?: string | null;
   appliedDate?: string | null;
@@ -37,6 +39,8 @@ type ApplicantDetail = {
   maritalStatus?: number | null;
   militaryStatus?: number | null;
   educationField?: string | null;
+  educationLevelId?: number | null;
+  educationLevelTitle?: string | null;
   lastJobTitle?: string | null;
   workExperienceYears?: number | null;
   linkedInLink?: string | null;
@@ -122,6 +126,26 @@ function normalizeApplication(raw: any): JobApplication {
     jobApplicationId: d.jobApplicationId ?? d.JobApplicationId ?? d.id,
     applicantId: d.applicantId ?? d.ApplicantId,
     jobGroupId: d.jobGroupId ?? d.JobGroupId,
+    educationLevelId:
+      d.educationLevelId ??
+      d.EducationLevelId ??
+      d.applicantEducationLevelId ??
+      d.ApplicantEducationLevelId ??
+      d.educationLevel?.educationLevelId ??
+      d.educationLevel?.id ??
+      null,
+    educationLevelTitle:
+      d.educationLevelTitle ??
+      d.EducationLevelTitle ??
+      d.educationLevelName ??
+      d.EducationLevelName ??
+      d.applicantEducationLevelTitle ??
+      d.ApplicantEducationLevelTitle ??
+      d.applicantEducationLevelName ??
+      d.ApplicantEducationLevelName ??
+      d.educationLevel?.title ??
+      d.educationLevel?.name ??
+      null,
     applicationStatusId: d.applicationStatusId ?? d.ApplicationStatusId ?? null,
     applicationStatusName:
       d.applicationStatusName ?? d.ApplicationStatusName ?? null,
@@ -155,8 +179,12 @@ export default function AdminJobApplications() {
   const [statusNameFilter, setStatusNameFilter] = useState<string>(
     initialStatusNameFilter,
   );
+  const [educationLevelFilter, setEducationLevelFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [statusOptions, setStatusOptions] = useState<
+    { id: number; title: string }[]
+  >([]);
+  const [educationLevelOptions, setEducationLevelOptions] = useState<
     { id: number; title: string }[]
   >([]);
   const [jobGroupTitle, setJobGroupTitle] = useState<string>("");
@@ -264,6 +292,42 @@ export default function AdminJobApplications() {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data, res } = await apiFetch<any>(`/api/EducationLevels`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ searchKey: "" }),
+        });
+        if (!res.ok) return;
+        const list: any[] = Array.isArray(data?.educationLevels)
+          ? data.educationLevels
+          : Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.result)
+          ? data.result
+          : Array.isArray(data)
+          ? data
+          : [];
+        const mapped = list
+          .map((x) => ({
+            id: Number(x?.educationLevelId ?? x?.id),
+            title: String(x?.title ?? x?.name ?? ""),
+          }))
+          .filter((x) => Number.isFinite(x.id) && x.id > 0);
+        if (!mounted) return;
+        setEducationLevelOptions(mapped);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const nextStatusFilter =
       queryStatusId && Number(queryStatusId) > 0 ? queryStatusId : "";
     const nextStatusNameFilter = queryStatusName?.trim() || "";
@@ -293,8 +357,13 @@ export default function AdminJobApplications() {
           String(x.applicantNationalCode ?? "").includes(s),
       );
     }
+    if (educationLevelFilter) {
+      list = list.filter(
+        (x) => String(x.educationLevelId ?? "") === educationLevelFilter,
+      );
+    }
     return list;
-  }, [items, statusFilter, statusNameFilter, search]);
+  }, [items, statusFilter, statusNameFilter, search, educationLevelFilter]);
 
   const sorted = useMemo(() => {
     const list = [...filtered];
@@ -328,7 +397,7 @@ export default function AdminJobApplications() {
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, search, pageSize, sortKey, sortDir]);
+  }, [statusFilter, educationLevelFilter, search, pageSize, sortKey, sortDir]);
 
   function toggleSort(nextKey: typeof sortKey) {
     if (sortKey === nextKey) {
@@ -383,6 +452,26 @@ export default function AdminJobApplications() {
         maritalStatus: d.maritalStatus ?? d.MaritalStatus ?? null,
         militaryStatus: d.militaryStatus ?? d.MilitaryStatus ?? null,
         educationField: d.educationField ?? d.EducationField ?? null,
+        educationLevelId:
+          d.educationLevelId ??
+          d.EducationLevelId ??
+          d.applicantEducationLevelId ??
+          d.ApplicantEducationLevelId ??
+          d.educationLevel?.educationLevelId ??
+          d.educationLevel?.id ??
+          null,
+        educationLevelTitle:
+          d.educationLevelTitle ??
+          d.EducationLevelTitle ??
+          d.educationLevelName ??
+          d.EducationLevelName ??
+          d.applicantEducationLevelTitle ??
+          d.ApplicantEducationLevelTitle ??
+          d.applicantEducationLevelName ??
+          d.ApplicantEducationLevelName ??
+          d.educationLevel?.title ??
+          d.educationLevel?.name ??
+          null,
         lastJobTitle: d.lastJobTitle ?? d.LastJobTitle ?? null,
         workExperienceYears:
           d.workExperienceYears ?? d.WorkExperienceYears ?? null,
@@ -478,18 +567,21 @@ export default function AdminJobApplications() {
           : `${base}${fallbackUrl}`;
 
       const tryDownloadBlob = async (useAuth: boolean) => {
-        const headers = new Headers();
+        let headers: Headers | undefined;
         if (useAuth) {
           const authToken =
             typeof localStorage !== "undefined"
               ? localStorage.getItem("pma_auth_token")
               : null;
-          if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
+          if (authToken) {
+            headers = new Headers();
+            headers.set("Authorization", `Bearer ${authToken}`);
+          }
         }
 
         const downloadRes = await fetch(url, {
           method: "GET",
-          headers: headers.size ? headers : undefined,
+          headers,
         });
         if (!downloadRes.ok) throw new Error(`HTTP ${downloadRes.status}`);
 
@@ -704,7 +796,7 @@ export default function AdminJobApplications() {
       </div>
 
       <div className="mt-6 rounded-2xl border bg-white p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="text-xs text-gray-600">
             جستجو
             <input
@@ -727,6 +819,21 @@ export default function AdminJobApplications() {
               {statusOptions.map((s) => (
                 <option key={s.id} value={String(s.id)}>
                   {s.title || `وضعیت ${s.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-gray-600">
+            فیلتر مقطع تحصیلی
+            <select
+              value={educationLevelFilter}
+              onChange={(e) => setEducationLevelFilter(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900"
+            >
+              <option value="">همه مقاطع</option>
+              {educationLevelOptions.map((x) => (
+                <option key={x.id} value={String(x.id)}>
+                  {x.title || `مقطع ${x.id}`}
                 </option>
               ))}
             </select>
@@ -1044,6 +1151,18 @@ export default function AdminJobApplications() {
                       : detail.militaryStatus === 2
                       ? "انجام شده"
                       : "—"}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-white p-2">
+                  <div className="text-xs text-gray-500">مقطع تحصیلی</div>
+                  <div className="mt-1 font-semibold text-gray-900">
+                    {detail.educationLevelTitle ??
+                      educationLevelOptions.find(
+                        (x) => x.id === Number(detail.educationLevelId ?? 0),
+                      )?.title ??
+                      (detail.educationLevelId
+                        ? `کد ${detail.educationLevelId}`
+                        : "—")}
                   </div>
                 </div>
                 <div className="rounded-xl border bg-white p-2">

@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   apiFetch,
   pickApplicantId,
-  pickJobApplicationId,
   throwIfNotOk,
 } from "../api";
 
@@ -21,6 +20,13 @@ type City = {
 
 type Province = {
   provinceId?: number;
+  id?: number;
+  title?: string;
+  name?: string;
+};
+
+type EducationLevel = {
+  educationLevelId?: number;
   id?: number;
   title?: string;
   name?: string;
@@ -88,6 +94,24 @@ function normalizeCities(data: any): City[] {
         x?.province?.id,
     }))
     .filter((x) => Number(x.cityId) > 0);
+}
+
+function normalizeEducationLevels(data: any): EducationLevel[] {
+  const list: any[] = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.educationLevels)
+    ? data.educationLevels
+    : Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.result)
+    ? data.result
+    : [];
+  return list
+    .map((x) => ({
+      educationLevelId: x?.educationLevelId ?? x?.id,
+      title: x?.title ?? x?.name,
+    }))
+    .filter((x) => Number(x.educationLevelId) > 0);
 }
 
 function div(a: number, b: number): number {
@@ -191,6 +215,45 @@ function toEnglishDigits(value: string): string {
     .join("");
 }
 
+function isValidEmail(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
+function normalizeMobileInput(value: string): string {
+  const english = toEnglishDigits(value).trim();
+  const withPlus = english.replace(/[^\d+]/g, "");
+  if (!withPlus) return "";
+  if (withPlus.startsWith("+")) {
+    return `+${withPlus.slice(1).replace(/\+/g, "")}`.slice(0, 13);
+  }
+  return withPlus.replace(/\+/g, "").slice(0, 12);
+}
+
+function normalizeNationalCodeInput(value: string): string {
+  return toEnglishDigits(value).replace(/\D/g, "").slice(0, 10);
+}
+
+function isValidIranMobile(value: string): boolean {
+  const v = toEnglishDigits(value).replace(/[\s-]/g, "");
+  return /^09\d{9}$/.test(v) || /^\+989\d{9}$/.test(v) || /^00989\d{9}$/.test(v);
+}
+
+function isValidIranNationalCode(value: string): boolean {
+  const code = toEnglishDigits(value).replace(/\D/g, "");
+  if (!/^\d{10}$/.test(code)) return false;
+  if (/^(\d)\1{9}$/.test(code)) return false;
+
+  const check = Number(code[9]);
+  const sum = code
+    .slice(0, 9)
+    .split("")
+    .reduce((acc, digit, idx) => acc + Number(digit) * (10 - idx), 0);
+  const remainder = sum % 11;
+  return remainder < 2 ? check === remainder : check === 11 - remainder;
+}
+
 // /**
 //  * Reads a file as Base64 *string only* (no "data:*/*;base64," prefix)
 //  */
@@ -235,7 +298,8 @@ export default function Apply() {
   const [provinceId, setProvinceId] = useState<string>("");
   const [cityId, setCityId] = useState<string>("");
 
-  // 7) رشته تحصیلی
+  // 7) مقطع و رشته تحصیلی
+  const [educationLevelId, setEducationLevelId] = useState<string>("");
   const [educationField, setEducationField] = useState("");
 
   // 8) آخرین سمت شغلی و مدت سابقه
@@ -261,6 +325,8 @@ export default function Apply() {
 
   const [cities, setCities] = useState<City[]>([]);
   const [citiesLoadError, setCitiesLoadError] = useState<string>("");
+  const [educationLevels, setEducationLevels] = useState<EducationLevel[]>([]);
+  const [educationLevelsLoadError, setEducationLevelsLoadError] = useState("");
 
   const isFemale = gender === "2";
 
@@ -419,6 +485,47 @@ export default function Apply() {
     return Number.isFinite(n) && n > 1300 ? n : 1405;
   }, []);
 
+  // Load education levels (GET then fallback POST {searchKey:""})
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        setEducationLevelsLoadError("");
+
+        const g = await apiFetch<any>(`/api/EducationLevels`, {
+          signal: controller.signal,
+        });
+        if (g?.res?.ok) {
+          const norm = normalizeEducationLevels(g.data);
+          if (norm.length) {
+            setEducationLevels(norm);
+            return;
+          }
+        }
+
+        const p = await apiFetch<any>(`/api/EducationLevels`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ searchKey: "" }),
+          signal: controller.signal,
+        });
+        if (p?.res?.ok) {
+          setEducationLevels(normalizeEducationLevels(p.data));
+          return;
+        }
+
+        setEducationLevelsLoadError("امکان دریافت لیست مقاطع تحصیلی وجود ندارد");
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          setEducationLevelsLoadError(
+            "امکان دریافت لیست مقاطع تحصیلی وجود ندارد",
+          );
+        }
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
   const yearOptions = useMemo(() => {
     const years: number[] = [];
     for (let y = currentJalaliYear; y >= 1300; y -= 1) years.push(y);
@@ -514,42 +621,6 @@ export default function Apply() {
     return pickApplicantId(list[0]);
   }
 
-  async function resolveJobApplicationId(
-    applicantId: number,
-    jobGroupId: number,
-  ): Promise<number | null> {
-    const { data, res } = await apiFetch<any>(`/api/JobApplications`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        applicantId,
-        jobGroupId,
-        applicationStatusId: null,
-      }),
-    });
-    if (!res.ok) return null;
-
-    const list: any[] = Array.isArray(data)
-      ? data
-      : Array.isArray(data?.jobApplications)
-      ? data.jobApplications
-      : Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(data?.result)
-      ? data.result
-      : [];
-
-    const sorted = list
-      .filter((x) => Number(x?.jobApplicationId ?? x?.id) > 0)
-      .sort((a, b) => {
-        const ad = new Date(a?.createdDate ?? a?.appliedDate ?? 0).getTime();
-        const bd = new Date(b?.createdDate ?? b?.appliedDate ?? 0).getTime();
-        return bd - ad;
-      });
-
-    return pickJobApplicationId(sorted[0]);
-  }
-
   function clearFieldError(key: string) {
     setFieldErrors((prev) => {
       if (!prev[key]) return prev;
@@ -559,20 +630,87 @@ export default function Apply() {
     });
   }
 
+  function getReadableApiError(e: any): string | null {
+    const raw = e?.body;
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      const errors = parsed?.errors;
+      if (errors && typeof errors === "object") {
+        const all = Object.values(errors)
+          .flatMap((v: any) => (Array.isArray(v) ? v : []))
+          .filter((x: any) => typeof x === "string" && x.trim());
+        if (all.length) return all.join(" | ");
+      }
+      if (typeof parsed?.detail === "string" && parsed.detail.trim()) {
+        return parsed.detail;
+      }
+      if (typeof parsed?.message === "string" && parsed.message.trim()) {
+        return parsed.message;
+      }
+      if (typeof parsed?.title === "string" && parsed.title.trim()) {
+        return parsed.title;
+      }
+    } catch {
+      if (/Access to the path .* is denied/i.test(raw)) {
+        return "امکان ذخیره فایل روی سرور وجود ندارد (مجوز پوشه Uploads تنظیم نیست). لطفاً با مدیر سرور تماس بگیرید.";
+      }
+      return raw;
+    }
+    if (/Access to the path .* is denied/i.test(raw)) {
+      return "امکان ذخیره فایل روی سرور وجود ندارد (مجوز پوشه Uploads تنظیم نیست). لطفاً با مدیر سرور تماس بگیرید.";
+    }
+    return raw;
+  }
+
+  function getFieldErrorMessage(field: string): string {
+    if (!fieldErrors[field]) return "";
+    if (field === "mobile") {
+      if (!mobile.trim()) return "شماره موبایل الزامی است.";
+      return "فرمت شماره موبایل معتبر نیست. مثال: 09123456789";
+    }
+    if (field === "email") {
+      if (!email.trim()) return "ایمیل الزامی است.";
+      return "فرمت ایمیل معتبر نیست.";
+    }
+    if (field === "nationalCode") return "کد ملی معتبر نیست.";
+    return "";
+  }
+
   function validateForm(): boolean {
     const e: Record<string, boolean> = {};
+    const errorsText: string[] = [];
+
+    const firstNameMissing = !firstName.trim();
+    const lastNameMissing = !lastName.trim();
+    const mobileMissing = !mobile.trim();
+    const emailMissing = !email.trim();
+    const genderMissing = !gender;
+    const birthDateMissing = !birthDateIso;
+    const provinceMissing = !provinceId;
+    const cityMissing = !cityId;
+    const educationLevelMissing = !educationLevelId;
+    const imageMissing = !imageFile;
+    const resumeMissing = !resumeFile;
+
+    const mobileInvalid = !mobileMissing && !isValidIranMobile(mobile);
+    const emailInvalid = !emailMissing && !isValidEmail(email);
+    const nationalCodeInvalid =
+      !!nationalCode.trim() && !isValidIranNationalCode(nationalCode);
 
     // required fields
-    e.firstName = !firstName.trim();
-    e.lastName = !lastName.trim();
-    e.mobile = !mobile.trim();
-    e.email = !email.trim();
-    e.gender = !gender;
-    e.birthDateIso = !birthDateIso;
-    e.provinceId = !provinceId;
-    e.cityId = !cityId;
-    e.imageFile = !imageFile;
-    e.resumeFile = !resumeFile;
+    e.firstName = firstNameMissing;
+    e.lastName = lastNameMissing;
+    e.mobile = mobileMissing || mobileInvalid;
+    e.email = emailMissing || emailInvalid;
+    e.gender = genderMissing;
+    e.birthDateIso = birthDateMissing;
+    e.provinceId = provinceMissing;
+    e.cityId = cityMissing;
+    e.educationLevelId = educationLevelMissing;
+    e.imageFile = imageMissing;
+    e.resumeFile = resumeMissing;
+    e.nationalCode = nationalCodeInvalid;
 
     // birthdate must not be in the future (if present)
     if (birthDateIso) {
@@ -584,6 +722,34 @@ export default function Apply() {
 
     const compact = Object.fromEntries(Object.entries(e).filter(([, v]) => v));
     setFieldErrors(compact);
+
+    if (mobileInvalid) {
+      errorsText.push("فرمت شماره موبایل معتبر نیست. مثال: 09123456789");
+    }
+    if (emailInvalid) {
+      errorsText.push("فرمت ایمیل معتبر نیست.");
+    }
+    if (nationalCodeInvalid) {
+      errorsText.push("کد ملی معتبر نیست.");
+    }
+    if (
+      firstNameMissing ||
+      lastNameMissing ||
+      mobileMissing ||
+      emailMissing ||
+      genderMissing ||
+      birthDateMissing ||
+      provinceMissing ||
+      cityMissing ||
+      educationLevelMissing ||
+      imageMissing ||
+      resumeMissing
+    ) {
+      errorsText.unshift("فیلدهای الزامی باید تکمیل شوند.");
+    }
+    if (errorsText.length) {
+      setError(errorsText.join(" "));
+    }
 
     return Object.keys(compact).length === 0;
   }
@@ -708,7 +874,6 @@ export default function Apply() {
 
     setError("");
     if (!validateForm()) {
-      setError("فیلدهای الزامی باید تکمیل شوند.");
       return;
     }
 
@@ -719,28 +884,36 @@ export default function Apply() {
 
     try {
       const formData = new FormData();
-      formData.append("firstName", firstName.trim());
-      formData.append("lastName", lastName.trim());
-      formData.append("mobile", mobile.trim() || "");
-      formData.append("nationalCode", nationalCode.trim() || "");
-      formData.append("email", email.trim() || "");
-      formData.append("linkedInLink", linkedInLink.trim() || "");
-      formData.append("provinceId", prov.toString());
-      formData.append("cityId", city.toString());
-      formData.append("jobGroupId", jobIdNum.toString());
-      formData.append("imageFile", imageFile);
-      formData.append("resumeFile", resumeFile);
+      formData.append("FirstName", firstName.trim());
+      formData.append("LastName", lastName.trim());
+      formData.append("JobGroupId", jobIdNum.toString());
+      formData.append("ImageFile", imageFile);
+      formData.append("ResumeFile", resumeFile);
+      formData.append("ProvinceId", prov.toString());
+      formData.append("CityId", city.toString());
 
-      // اضافه کردن فیلدهای دیگر در صورت نیاز
-      if (gender) formData.append("gender", gender);
-      if (birthDateIso) formData.append("birthDate", birthDateIso);
-      if (maritalStatus) formData.append("maritalStatus", maritalStatus);
-      if (militaryStatus) formData.append("militaryStatus", militaryStatus);
-      if (educationField) formData.append("educationField", educationField);
-      if (lastJobTitle) formData.append("lastJobTitle", lastJobTitle);
-      if (workExperienceYears)
-        formData.append("workExperienceYears", workExperienceYears);
-      if (description) formData.append("description", description);
+      const mobileValue = mobile.trim();
+      if (mobileValue) formData.append("Mobile", mobileValue);
+      const nationalCodeValue = nationalCode.trim();
+      if (nationalCodeValue) formData.append("NationalCode", nationalCodeValue);
+      const emailValue = email.trim();
+      if (emailValue) formData.append("Email", emailValue);
+      const linkedInValue = linkedInLink.trim();
+      if (linkedInValue) formData.append("LinkedInLink", linkedInValue);
+
+      if (gender) formData.append("Gender", gender);
+      if (birthDateIso) formData.append("BirthDate", birthDateIso);
+      if (maritalStatus) formData.append("MaritalStatus", maritalStatus);
+      if (!isFemale && militaryStatus)
+        formData.append("MilitaryStatus", militaryStatus);
+      if (educationLevelId) formData.append("EducationLevelId", educationLevelId);
+      if (educationField.trim())
+        formData.append("EducationField", educationField.trim());
+      if (lastJobTitle.trim())
+        formData.append("LastJobTitle", lastJobTitle.trim());
+      if (workExperienceYears.trim())
+        formData.append("WorkExperienceYears", workExperienceYears.trim());
+      if (description.trim()) formData.append("Description", description.trim());
 
       const { data: applicantData, res: applicantRes } = await apiFetch<any>(
         `/api/Applicants/create`,
@@ -750,60 +923,14 @@ export default function Apply() {
         },
       );
       await throwIfNotOk(applicantRes);
-
-      let applicantId = pickApplicantId(applicantData);
-      if (!applicantId) {
-        const key = mobile.trim() || nationalCode.trim() || email.trim();
-        applicantId = await resolveApplicantIdFromSearchKey(key);
-      }
-      if (!applicantId) {
-        throw new Error("شناسه متقاضی برای ثبت درخواست شغلی دریافت نشد.");
-      }
-
-      const appliedDate = new Date().toISOString();
-      const initialStatusId = 1;
-
-      const { data: jobAppData, res: jobAppRes } = await apiFetch<any>(`/api/JobApplications/create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          applicantId,
-          jobGroupId: jobIdNum,
-          applicationStatusId: initialStatusId,
-          appliedDate,
-        }),
-      });
-      await throwIfNotOk(jobAppRes);
-
-      let jobApplicationId = pickJobApplicationId(jobAppData);
-      if (!jobApplicationId) {
-        jobApplicationId = await resolveJobApplicationId(applicantId, jobIdNum);
-      }
-      if (!jobApplicationId) {
-        throw new Error("شناسه درخواست برای ثبت تاریخچه وضعیت دریافت نشد.");
-      }
-
-      const { res: historyRes } = await apiFetch<any>(
-        `/api/ApplicantStatusHistories/create`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jobApplicationId,
-            applicantStatusId: initialStatusId,
-            changedByUserId: 0,
-            comment: "ثبت اولیه درخواست",
-          }),
-        },
-      );
-      await throwIfNotOk(historyRes);
+      void applicantData;
 
       setSuccess(true);
       setFieldErrors({});
       localStorage.setItem(`pma_applied_${jobIdNum}`, "true");
     } catch (e: any) {
       setError(
-        e?.body ??
+        getReadableApiError(e) ??
           e?.message ??
           "خطا در ثبت درخواست همکاری. لطفاً دوباره تلاش کنید."
       );
@@ -919,7 +1046,7 @@ export default function Apply() {
                 <input
                   value={mobile}
                   onChange={(e) => {
-                    setMobile(e.target.value);
+                    setMobile(normalizeMobileInput(e.target.value));
                     clearFieldError("mobile");
                   }}
                   className={`w-full rounded-xl border px-3 py-2 text-sm ${
@@ -927,18 +1054,31 @@ export default function Apply() {
                   }`}
                   dir="ltr"
                 />
+                {!!getFieldErrorMessage("mobile") && (
+                  <div className="mt-1 text-xs text-red-600">
+                    {getFieldErrorMessage("mobile")}
+                  </div>
+                )}
               </label>
 
               <label className="text-sm">
                 <div className="mb-1 font-semibold text-gray-800">کد ملی</div>
                 <input
                   value={nationalCode}
-                  onChange={(e) => setNationalCode(e.target.value)}
+                  onChange={(e) => {
+                    setNationalCode(normalizeNationalCodeInput(e.target.value));
+                    clearFieldError("nationalCode");
+                  }}
                   className={`w-full rounded-xl border px-3 py-2 text-sm ${
-                    fieldErrors.email ? "border-red-500" : ""
+                    fieldErrors.nationalCode ? "border-red-500" : ""
                   }`}
                   dir="ltr"
                 />
+                {!!getFieldErrorMessage("nationalCode") && (
+                  <div className="mt-1 text-xs text-red-600">
+                    {getFieldErrorMessage("nationalCode")}
+                  </div>
+                )}
               </label>
             </div>
 
@@ -953,11 +1093,16 @@ export default function Apply() {
                     clearFieldError("email");
                   }}
                   className={`w-full rounded-xl border px-3 py-2 text-sm ${
-                    fieldErrors.gender ? "border-red-500" : ""
+                    fieldErrors.email ? "border-red-500" : ""
                   }`}
                   type="email"
                   dir="ltr"
                 />
+                {!!getFieldErrorMessage("email") && (
+                  <div className="mt-1 text-xs text-red-600">
+                    {getFieldErrorMessage("email")}
+                  </div>
+                )}
               </label>
 
               <label className="text-sm">
@@ -1170,17 +1315,49 @@ export default function Apply() {
               </label>
             </div>
 
-            {/* 7) رشته تحصیلی */}
-            <label className="text-sm">
-              <div className="mb-1 font-semibold text-gray-800">
-                رشته تحصیلی
-              </div>
-              <input
-                value={educationField}
-                onChange={(e) => setEducationField(e.target.value)}
-                className="w-full rounded-xl border px-3 py-2 text-sm"
-              />
-            </label>
+            {/* 7) مقطع و رشته تحصیلی */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="text-sm">
+                <div className="mb-1 font-semibold text-gray-800">
+                  مقطع تحصیلی <span className="text-red-600">*</span>
+                </div>
+                <select
+                  value={educationLevelId}
+                  onChange={(e) => {
+                    setEducationLevelId(e.target.value);
+                    clearFieldError("educationLevelId");
+                  }}
+                  className={`w-full rounded-xl border px-3 py-2 text-sm ${
+                    fieldErrors.educationLevelId ? "border-red-500" : ""
+                  }`}
+                  disabled={educationLevels.length === 0}
+                >
+                  <option value="">
+                    {educationLevels.length ? "انتخاب کنید" : "در حال دریافت..."}
+                  </option>
+                  {educationLevels.map((x, idx) => (
+                    <option key={idx} value={String(x.educationLevelId)}>
+                      {x.title ?? `مقطع ${x.educationLevelId}`}
+                    </option>
+                  ))}
+                </select>
+                {educationLevelsLoadError && (
+                  <div className="mt-1 text-xs text-gray-500">
+                    {educationLevelsLoadError}
+                  </div>
+                )}
+              </label>
+              <label className="text-sm">
+                <div className="mb-1 font-semibold text-gray-800">
+                  رشته تحصیلی
+                </div>
+                <input
+                  value={educationField}
+                  onChange={(e) => setEducationField(e.target.value)}
+                  className="w-full rounded-xl border px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
 
             {/* 8) آخرین سمت شغلی و مدت سابقه */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

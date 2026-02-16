@@ -212,6 +212,10 @@
                   "EducationField": {
                     "type": "string"
                   },
+                  "EducationLevelId": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
                   "LastJobTitle": {
                     "type": "string"
                   },
@@ -276,6 +280,9 @@
                   "style": "form"
                 },
                 "EducationField": {
+                  "style": "form"
+                },
+                "EducationLevelId": {
                   "style": "form"
                 },
                 "LastJobTitle": {
@@ -1893,6 +1900,11 @@
           },
           "educationField": {
             "type": "string",
+            "nullable": true
+          },
+          "educationLevelId": {
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           },
           "lastJobTitle": {
