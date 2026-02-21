@@ -48,12 +48,12 @@ export default function App() {
         const list: any[] = Array.isArray(data)
           ? data
           : Array.isArray(data?.jobGroups)
-          ? data.jobGroups
-          : Array.isArray(data?.items)
-          ? data.items
-          : Array.isArray(data?.result)
-          ? data.result
-          : [];
+            ? data.jobGroups
+            : Array.isArray(data?.items)
+              ? data.items
+              : Array.isArray(data?.result)
+                ? data.result
+                : [];
         setItems(list as JobGroup[]);
       } catch (e: any) {
         if (e?.name !== "AbortError")
@@ -77,9 +77,17 @@ export default function App() {
               path="/jobs"
               element={
                 <div className="mx-auto max-w-6xl p-6">
-                  <h1 className="text-2xl font-bold text-gray-900 mb-6">
-                    گروه‌های شغلی
-                  </h1>
+                  <div className="mb-6 flex items-center justify-between gap-3">
+                    <h1 className="text-2xl font-bold text-gray-900">
+                      گروه‌های شغلی
+                    </h1>
+                    <a
+                      href="https://pmaimperio.com"
+                      className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      برگشت به سایت
+                    </a>
+                  </div>
 
                   {loading && (
                     <div className="text-sm text-gray-600">
